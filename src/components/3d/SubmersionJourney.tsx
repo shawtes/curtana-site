@@ -16,9 +16,10 @@
  * Reference: /Downloads/SUBMERSION_JOURNEY_PROMPT.md
  */
 
-import { useRef, Suspense } from 'react'
+import { useRef, useMemo, Suspense } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { Stars, Sparkles, Float } from '@react-three/drei'
+import { Sparkles } from '@react-three/drei'
+import StarField from './StarField'
 import { EffectComposer, Bloom, ChromaticAberration, Vignette } from '@react-three/postprocessing'
 import { BlendFunction } from 'postprocessing'
 import * as THREE from 'three'
@@ -164,14 +165,14 @@ function SurfaceFromBelow({ visible }: { visible: boolean }) {
     <mesh ref={meshRef} rotation={[-Math.PI / 2, 0, 0]}>
       <planeGeometry args={[40, 40]} />
       <meshStandardMaterial
-        color="#0a2818"
-        emissive="#0d3a22"
+        color="#021428"
+        emissive="#0a3060"
         emissiveIntensity={0.3}
         transparent
-        opacity={0.6}
+        opacity={0.72}
         side={THREE.BackSide}
-        roughness={0.1}
-        metalness={0.7}
+        roughness={0.05}
+        metalness={0.85}
         depthWrite={false}
       />
     </mesh>
@@ -270,6 +271,53 @@ function SacredGeo({ act3Progress }: { act3Progress: number }) {
   )
 }
 
+// ─── HORIZON GRADIENT ─────────────────────────────────────────────────────────
+// Large cylinder (BackSide) that blends the water edge into the sky,
+// eliminating the sharp cut-off at the water plane's boundary.
+
+const HORIZON_VERT = `
+  varying vec3 vWorldPosition;
+  void main() {
+    vec4 wp = modelMatrix * vec4(position, 1.0);
+    vWorldPosition = wp.xyz;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`
+const HORIZON_FRAG = `
+  uniform vec3  topColor;
+  uniform vec3  bottomColor;
+  varying vec3  vWorldPosition;
+  void main() {
+    // t = 0 at water level (y ≈ -2), t = 1 well above
+    float t = clamp((vWorldPosition.y + 2.0) / 22.0, 0.0, 1.0);
+    t = pow(t, 0.55);
+    float alpha = 1.0 - t * 0.55;
+    gl_FragColor = vec4(mix(bottomColor, topColor, t), alpha);
+  }
+`
+
+function HorizonGradient({ visible }: { visible: boolean }) {
+  const mat = useMemo(() => new THREE.ShaderMaterial({
+    side:        THREE.BackSide,
+    transparent: true,
+    depthWrite:  false,
+    uniforms: {
+      topColor:    { value: new THREE.Color(0x0d0f0e) },  // sky — exact match to --bg
+      bottomColor: { value: new THREE.Color(0x0a1214) },  // water color
+    },
+    vertexShader:   HORIZON_VERT,
+    fragmentShader: HORIZON_FRAG,
+  }), [])
+
+  if (!visible) return null
+
+  return (
+    <mesh position={[0, -2, 0]} renderOrder={-1} material={mat}>
+      <cylinderGeometry args={[500, 500, 40, 64, 1, true]} />
+    </mesh>
+  )
+}
+
 // ─── PALM GLOW ────────────────────────────────────────────────────────────────
 // Warm gold light from raised hands during Act 5 (arms raise at act5 > 0.65).
 
@@ -320,16 +368,16 @@ function CameraRig({
     prevProg.current = progress
 
     if (progress < 0.15) {
-      // Act 0: stationary, eye-level with figure
-      targetPos.current.set(0, 1.2, 5)
-      targetLook.current.set(0, 0, 0)
+      // Act 0: low eye-level over water surface — camera close to water
+      targetPos.current.set(0, 1.8, 6)
+      targetLook.current.set(0, 0.3, 0)
 
     } else if (progress < 0.28) {
       // Act 1: camera descends with figure, pulls forward slightly
       targetPos.current.set(
         0,
-        THREE.MathUtils.lerp(1.2, -3.5, a1),
-        THREE.MathUtils.lerp(5.0, 3.0, a1),
+        THREE.MathUtils.lerp(1.8, -3.5, a1),
+        THREE.MathUtils.lerp(6.0, 3.0, a1),
       )
       targetLook.current.set(0, figureY + 1, 0)
 
@@ -417,14 +465,23 @@ function UnderwaterFog({ progress, a1, a2, a3 }: { progress: number; a1: number;
     const depth = Math.max(0, -1.8 - camera.position.y)
 
     if (depth > 0.05 && progress < 0.62) {
-      const t       = Math.min(1, depth / 10)
-      const density = Math.min(0.12, depth * 0.014 + a2 * 0.04)
+      // Underwater fog — deepens with submersion
+      const t        = Math.min(1, depth / 10)
+      const density  = Math.min(0.12, depth * 0.014 + a2 * 0.04)
       const fogColor = new THREE.Color('#0d2a4a').lerp(new THREE.Color('#020510'), t)
       if (scene.fog instanceof THREE.FogExp2) {
         scene.fog.color.copy(fogColor)
         scene.fog.density = density
       } else {
         scene.fog = new THREE.FogExp2(fogColor.getHex(), density)
+      }
+    } else if (progress < 0.15) {
+      // Act 0 surface — light horizon fog blends water edge into sky
+      if (scene.fog instanceof THREE.FogExp2) {
+        scene.fog.color.setHex(0x0d0f0e)
+        scene.fog.density = 0.012
+      } else {
+        scene.fog = new THREE.FogExp2(0x0d0f0e, 0.012)
       }
     } else {
       scene.fog = null
@@ -437,6 +494,7 @@ function UnderwaterFog({ progress, a1, a2, a3 }: { progress: number; a1: number;
 // ─── THREE-LAYER PARTICLE DEPTH SYSTEM ───────────────────────────────────────
 // Three depth layers as specified in Act 00 surface scene.
 
+// Dust motes / pollen on the water surface — natural, no green
 function DepthParticles({ visible, mobile }: { visible: boolean; mobile: boolean }) {
   if (!visible) return null
 
@@ -444,32 +502,32 @@ function DepthParticles({ visible, mobile }: { visible: boolean; mobile: boolean
 
   return (
     <group>
-      {/* Layer 1 — Foreground (close, large, fast) */}
+      {/* Layer 1 — close water-surface dust motes, pale cream */}
       <Sparkles
-        count={Math.round(200 * scale)}
+        count={Math.round(120 * scale)}
         scale={3}
-        size={3.2}
-        speed={0.35}
-        color="#7fa882"
-        opacity={0.75}
+        size={1.8}
+        speed={0.12}
+        color="#e8dfc8"
+        opacity={0.30}
       />
-      {/* Layer 2 — Midground */}
-      <Sparkles
-        count={Math.round(800 * scale)}
-        scale={8}
-        size={1.6}
-        speed={0.18}
-        color="#c8b89a"
-        opacity={0.45}
-      />
-      {/* Layer 3 — Background (tiny, barely moving) */}
+      {/* Layer 2 — mid distance, cool silver-white */}
       <Sparkles
         count={Math.round(400 * scale)}
-        scale={18}
-        size={0.7}
-        speed={0.06}
-        color="#4a6b4c"
-        opacity={0.25}
+        scale={9}
+        size={0.9}
+        speed={0.07}
+        color="#c8d8e8"
+        opacity={0.18}
+      />
+      {/* Layer 3 — far, near-invisible atmosphere shimmer */}
+      <Sparkles
+        count={Math.round(200 * scale)}
+        scale={20}
+        size={0.4}
+        speed={0.03}
+        color="#a0b8cc"
+        opacity={0.10}
       />
     </group>
   )
@@ -506,8 +564,9 @@ function Scene({ progress }: { progress: number }) {
       {/* ── Lighting ── */}
       <ambientLight intensity={0.18} color="#e8ede9" />
       <directionalLight position={[-2, 4, 3]} intensity={0.4} color="#c8b89a" />
-      <pointLight position={[0, 2, -2]} intensity={0.8} color={SAGE} />
-      <pointLight position={[2, 0, 2]}  intensity={0.25} color="#8fb5c4" />
+      {/* Replaced sage-green fill with neutral blue-white moonlight */}
+      <pointLight position={[0, 2, -2]} intensity={0.6} color="#c8d8f0" />
+      <pointLight position={[2, 0, 2]}  intensity={0.20} color="#8fb5c4" />
 
       {/* Top light during submersion */}
       {(act === 1 || act === 2) && (
@@ -529,10 +588,16 @@ function Scene({ progress }: { progress: number }) {
       )}
       <PalmGlow act5Progress={a5} act6Progress={a6} />
 
-      {/* ── Stars: Act 0 only ── */}
-      {act === 0 && (
-        <Stars radius={35} depth={15} count={mobile ? 1500 : 4000} factor={2.5} fade />
+      {/* ── Stars: Act 0–1 — 3-layer realistic night sky with scroll fade ── */}
+      {act <= 1 && (
+        <StarField
+          opacity={act === 0 ? 1.0 : Math.max(0, 1.0 - a1 * 7)}
+          mobile={mobile}
+        />
       )}
+
+      {/* ── Horizon gradient: Act 0 — blends water plane into sky ── */}
+      <HorizonGradient visible={act === 0} />
 
       {/* ── Surface particles: Acts 0–1 ── */}
       <DepthParticles visible={act <= 1} mobile={mobile} />
@@ -570,6 +635,11 @@ function Scene({ progress }: { progress: number }) {
 
       {/* ── Sacred geometry wireframes: Act 3 ── */}
       <SacredGeo act3Progress={a3} />
+
+      {/* ── Warp streaks canvas overlay: Act 4 ── */}
+      {(act === 4 || (act === 5 && a5 < 0.3)) && (
+        <WarpStreaks progress={progress} acts={acts} mobile={mobile} />
+      )}
 
       {/* ── Post-processing ── */}
       <EffectComposer>
@@ -753,7 +823,7 @@ export default function SubmersionJourney() {
         >
           <Canvas
             style={{ width: '100%', height: '100%', display: 'block' }}
-            camera={{ position: [0, 1.2, 5], fov: 52, near: 0.1, far: 200 }}
+            camera={{ position: [0, 1.8, 6], fov: 55, near: 0.1, far: 2000 }}
             gl={{
               antialias:           true,
               toneMapping:         THREE.ACESFilmicToneMapping,

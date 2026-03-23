@@ -103,7 +103,7 @@ export default function HomePage() {
 
   return (
     <main>
-      {/* ── SUBMERSION JOURNEY — self-contained 800vh cinematic hero ── */}
+      {/* ── SUBMERSION JOURNEY — 800vh cinematic hero ── */}
       <SubmersionJourney />
 
 

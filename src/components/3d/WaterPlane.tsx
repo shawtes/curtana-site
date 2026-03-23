@@ -32,17 +32,18 @@ export default function WaterPlane({ visible, distortion = 1.2 }: Props) {
   useEffect(() => {
     if (!visible) return
 
-    const geom = new THREE.PlaneGeometry(20, 20)
+    const geom = new THREE.PlaneGeometry(5000, 5000)
     const water = new Water(geom, {
       textureWidth:    512,
       textureHeight:   512,
       waterNormals:    normals,
-      sunDirection:    new THREE.Vector3(0, 1, 0),
-      sunColor:        0xffffff,
-      waterColor:      0x0a1f14,   // sage-dark tinted, not ocean blue
+      // Low-angle moonlight — grazes the horizon, cool dim reflection
+      sunDirection:    new THREE.Vector3(-0.4, 0.08, -0.9).normalize(),
+      sunColor:        0x223344,   // dim cool moonlight, not white sun
+      waterColor:      0x0a1214,   // near-black with faint teal — still water at 2am
       distortionScale: distortion,
-      fog:             false,
-      alpha:           0.92,
+      fog:             true,
+      alpha:           1.0,        // fully opaque — no sea-floor showing
     })
     water.rotation.x = -Math.PI / 2
     waterRef.current  = water
@@ -67,6 +68,7 @@ export default function WaterPlane({ visible, distortion = 1.2 }: Props) {
     const breathFactor = 1 + Math.sin(t * 0.45) * 0.3
     if (u.time)             u.time.value            += breathFactor * 0.008
     if (u.distortionScale)  u.distortionScale.value  = distortion
+    if (u.size)             u.size.value             = 0.8  // smaller normal map tiles
   })
 
   if (!visible) return null
