@@ -1,26 +1,87 @@
-@import "tailwindcss";
+@import '@fontsource/cormorant-garamond/300.css';
+@import '@fontsource/cormorant-garamond/300-italic.css';
+@import '@fontsource/cormorant-garamond/400.css';
+@import '@fontsource/cormorant-garamond/400-italic.css';
+@import '@fontsource/cormorant-garamond/500.css';
+@import '@fontsource/cormorant-garamond/500-italic.css';
+@import '@fontsource/dm-sans/300.css';
+@import '@fontsource/dm-sans/400.css';
+@import '@fontsource/dm-sans/500.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --font-display: 'Cormorant Garamond';
+  --font-body: 'DM Sans';
+
+  --bg:          #0d0f0e;
+  --bg2:         #141815;
+  --surface:     #1c211d;
+
+  --border:      rgba(127, 168, 130, 0.12);
+  --border2:     rgba(127, 168, 130, 0.25);
+  --border3:     rgba(127, 168, 130, 0.4);
+
+  --sage:        #7fa882;
+  --sage-light:  #a8c5aa;
+  --sage-dark:   #4a6b4c;
+  --sage-glow:   rgba(127, 168, 130, 0.25);
+
+  --sand:        #c8b89a;
+  --sand-light:  #e0d4c0;
+  --cream:       #f5f0e8;
+
+  --mist:        #8fb5c4;
+  --mist-soft:   rgba(143, 181, 196, 0.15);
+
+  --gold:        #c9a96e;
+  --gold-soft:   rgba(201, 169, 110, 0.2);
+
+  --text:        #e8ede9;
+  --muted:       #7a8b7c;
+  --dim:         #3d4a3e;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+* { cursor: none; box-sizing: border-box; }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+html { scroll-behavior: smooth; }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body), sans-serif;
+  font-weight: 300;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  line-height: 1.85;
+}
+
+/* Typography */
+h1, h2, h3, h4 {
+  font-family: var(--font-display), Georgia, serif;
+  font-weight: 400;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: var(--cream);
+}
+
+/* Selection */
+::selection {
+  background: rgba(127, 168, 130, 0.3);
+  color: var(--cream);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 3px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--sage-dark); border-radius: 2px; }
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }
