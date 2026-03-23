@@ -327,7 +327,7 @@ export default function HomePage() {
                       marginBottom: 20,
                     }}
                   >
-                    "{t.quote}"
+                    &ldquo;{t.quote}&rdquo;
                   </p>
                   <div>
                     <p
