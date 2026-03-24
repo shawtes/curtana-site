@@ -665,6 +665,7 @@ export default function SubmersionJourney() {
       if (elapsed <= HOLD_MS) {
         // Hold on surface
         setSceneProgress(0)
+        window.dispatchEvent(new CustomEvent('journey-progress', { detail: { p: 0 } }))
       } else {
         const journeyElapsed = elapsed - HOLD_MS
         const t = Math.min(1, journeyElapsed / JOURNEY_MS)

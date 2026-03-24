@@ -1,19 +1,45 @@
 'use client'
 
 /**
- * AmbientAudioProvider — Connects the ambient audio engine to the journey
- * progress events and renders the sound toggle button.
- *
- * Listens for 'journey-progress' custom events dispatched by SubmersionJourney.
+ * AmbientAudioProvider — Auto-enables ambient audio on first user interaction.
+ * Connects to journey-progress events from SubmersionJourney.
  */
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useAmbientAudio } from '@/hooks/useAmbientAudio'
 import SoundToggle from './SoundToggle'
 
 export default function AmbientAudioProvider() {
   const audio = useAmbientAudio()
   const [enabled, setEnabled] = useState(false)
+  const autoEnabled = useRef(false)
+
+  // Auto-enable audio on first user interaction (click, touch, keydown, scroll)
+  useEffect(() => {
+    const unlock = () => {
+      if (autoEnabled.current) return
+      autoEnabled.current = true
+      audio.enable()
+      setEnabled(true)
+      // Clean up all listeners
+      window.removeEventListener('click', unlock, true)
+      window.removeEventListener('touchstart', unlock, true)
+      window.removeEventListener('keydown', unlock, true)
+      window.removeEventListener('wheel', unlock, true)
+    }
+
+    window.addEventListener('click', unlock, { capture: true, once: false })
+    window.addEventListener('touchstart', unlock, { capture: true, once: false })
+    window.addEventListener('keydown', unlock, { capture: true, once: false })
+    window.addEventListener('wheel', unlock, { capture: true, once: false })
+
+    return () => {
+      window.removeEventListener('click', unlock, true)
+      window.removeEventListener('touchstart', unlock, true)
+      window.removeEventListener('keydown', unlock, true)
+      window.removeEventListener('wheel', unlock, true)
+    }
+  }, [audio])
 
   const handleToggle = useCallback(() => {
     audio.toggle()

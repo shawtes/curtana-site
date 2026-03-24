@@ -94,14 +94,14 @@ export function useAmbientAudio(): AmbientAudio {
     masterFilter.Q.value = 0.7
 
     const masterGain = ctx.createGain()
-    masterGain.gain.value = 0.35  // overall volume
+    masterGain.gain.value = 0.55  // overall volume
 
     masterFilter.connect(masterGain)
     masterGain.connect(ctx.destination)
 
     // ── Surface layer: warm pad + wind noise ──────────────────────────────
     const surfaceGain = ctx.createGain()
-    surfaceGain.gain.value = 0
+    surfaceGain.gain.value = 0.7  // start audible — surface plays at p=0
     surfaceGain.connect(masterFilter)
 
     // Pad: root (C3 ~130Hz) + fifth (G3 ~196Hz), triangle for warmth
@@ -130,7 +130,7 @@ export function useAmbientAudio(): AmbientAudio {
     surfaceNoise.buffer = noiseBuffer
     surfaceNoise.loop = true
     const surfaceNoiseGain = ctx.createGain()
-    surfaceNoiseGain.gain.value = 0.08
+    surfaceNoiseGain.gain.value = 0.15
     surfaceNoise.connect(surfaceNoiseGain)
     surfaceNoiseGain.connect(surfaceNoiseFilter)
 
@@ -238,7 +238,7 @@ export function useAmbientAudio(): AmbientAudio {
     mutedRef.current = !mutedRef.current
     if (nodesRef.current) {
       nodesRef.current.masterGain.gain.setTargetAtTime(
-        mutedRef.current ? 0 : 0.35,
+        mutedRef.current ? 0 : 0.55,
         ctxRef.current!.currentTime,
         0.3
       )
@@ -262,9 +262,9 @@ export function useAmbientAudio(): AmbientAudio {
     n.masterFilter.frequency.setTargetAtTime(lpFreq, t, 0.1)
 
     // ── Layer gains (equal-power crossfade) ──────────────────────────────
-    // Surface: 0.0–0.30 peak, fade out by 0.45
-    const surfVol = fadeOut(progress, 0.15, 0.45)
-    n.surfaceGain.gain.setTargetAtTime(surfVol * 0.6, t, 0.15)
+    // Surface: full at 0, fades out 0.20–0.50
+    const surfVol = fadeOut(progress, 0.20, 0.50)
+    n.surfaceGain.gain.setTargetAtTime(surfVol * 0.7, t, 0.15)
 
     // Descend: fade in 0.15–0.35, fade out 0.50–0.70
     const descVol = fadeIn(progress, 0.15, 0.35) * fadeOut(progress, 0.50, 0.70)
