@@ -529,51 +529,30 @@ function HeroOverlay({ opacity }: { opacity: number }) {
 
   return (
     <>
-      {/* Top chrome */}
-      <motion.div
+      {/* Title */}
+      <motion.h1
         animate={{ opacity }}
         transition={{ duration: 0.4 }}
         style={{
-          position:     'absolute',
-          top:          'calc(72px + 20px)',
-          left:         'clamp(20px, 3vw, 40px)',
-          right:        'clamp(20px, 3vw, 40px)',
-          zIndex:       10,
+          position:      'absolute',
+          top:           'calc(50% - 60px)',
+          left:          'clamp(20px, 3vw, 40px)',
+          right:         'clamp(20px, 3vw, 40px)',
+          zIndex:        10,
           pointerEvents: opacity < 0.05 ? 'none' : 'auto',
+          fontFamily:    'var(--font-display, Georgia, serif)',
+          fontSize:      'clamp(40px, 6vw, 88px)',
+          fontWeight:    300,
+          fontStyle:     'italic',
+          color:         'var(--cream)',
+          letterSpacing: '-2px',
+          lineHeight:    1.0,
+          margin:        0,
+          textAlign:     'center',
         }}
       >
-        <div className="hero-top-chrome" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-          <span style={{
-            display: 'inline-flex', alignItems: 'center', gap: 10,
-            fontFamily: 'var(--font-body, sans-serif)',
-            fontSize: '11px', letterSpacing: '3px', textTransform: 'uppercase', color: 'var(--sage)',
-          }}>
-            <span style={{ display: 'inline-block', width: 20, height: 1, background: 'var(--sage)', opacity: 0.6 }} />
-            psychological · social · professional
-          </span>
-          <span style={{
-            fontFamily: 'var(--font-body, sans-serif)',
-            fontSize: '11px', letterSpacing: '2px', textTransform: 'uppercase',
-            color: 'var(--muted)', opacity: 0.7,
-          }}>
-            flowwithcurtana.com
-          </span>
-        </div>
-
-        <h1 style={{
-          fontFamily: 'var(--font-display, Georgia, serif)',
-          fontSize:   'clamp(40px, 6vw, 88px)',
-          fontWeight: 300,
-          fontStyle:  'italic',
-          color:      'var(--cream)',
-          letterSpacing: '-2px',
-          lineHeight: 1.0,
-          margin:     0,
-          textAlign:  'center',
-        }}>
-          Flow With Curtana
-        </h1>
-      </motion.div>
+        Flow With Curtana
+      </motion.h1>
 
       {/* CTA */}
       <motion.div
