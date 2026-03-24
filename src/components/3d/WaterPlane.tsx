@@ -37,14 +37,22 @@ export default function WaterPlane({ visible, distortion = 1.2 }: Props) {
       textureWidth:    512,
       textureHeight:   512,
       waterNormals:    normals,
-      // Night — moonlight reflects off deep sage-tinted water
-      sunDirection:    new THREE.Vector3(-0.4, 0.08, -0.9).normalize(),
-      sunColor:        0x4a7a5c,
-      waterColor:      0x0a1214,
+      // Night sky — no sun, no blue sky reflection
+      sunDirection:    new THREE.Vector3(0, -1, 0).normalize(), // sun below horizon
+      sunColor:        0x000000,  // no sun color — kills blue sky reflection
+      waterColor:      0x0a1214,  // dark water
       distortionScale: distortion,
       fog:             true,
       alpha:           1.0,
     })
+    // Override the shader to kill any remaining blue from reflections
+    // by darkening the reflection contribution
+    water.material.onBeforeCompile = (shader) => {
+      shader.fragmentShader = shader.fragmentShader.replace(
+        'vec3 albedo = mix( ( sunColor * diffuseLight * 0.3 + scatter ) * getShadowMask(), reflectionSample + specularLight, reflectance );',
+        'vec3 albedo = mix( scatter * 0.5, reflectionSample * 0.3, reflectance * 0.4 );'
+      )
+    }
     water.rotation.x = -Math.PI / 2
     waterRef.current  = water
 
