@@ -16,7 +16,7 @@
 
 import { useRef, useEffect, useState } from 'react'
 
-const LERP = 0.035
+const LERP = 0.08
 
 // Build a full-width sweeping path.
 // vW = normalized view width (1000), vH = container height in px.
@@ -138,7 +138,8 @@ export default function VerticalThreadLine({
       if (range <= 0) return
 
       const raw = (scrollY - startScroll) / range
-      targetRef.current = Math.min(1, Math.max(0, raw))
+      // Lead the scroll by 20% so the line is always drawn ahead of content
+      targetRef.current = Math.min(1, Math.max(0, raw * 1.2 + 0.05))
     }
     window.addEventListener('scroll',        update, { passive: true })
     window.addEventListener('smooth-scroll', update as EventListener, { passive: true })
