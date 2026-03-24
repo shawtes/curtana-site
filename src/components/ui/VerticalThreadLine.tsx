@@ -3,21 +3,22 @@
 /**
  * VerticalThreadLine — Lusion-style self-drawing ribbon.
  *
- * Key technique: frame-rate-independent exponential damping (not raw lerp).
- * Target comes from Lenis virtual scroll (smooth-scroll custom event),
- * current position damps toward it at LAMBDA=3 (~1.5s settle time).
- * This matches the exact feel of Lenis's own smoothing.
+ * Lusion technique (confirmed via Playwright inspection):
+ *   - NO lerp/damp on the line draw — the scroll is already smooth (Lenis)
+ *   - quadInOut easing applied to the raw scroll ratio
+ *   - Progress reads from Lenis smooth-scroll event (already interpolated)
+ *   - Line draws directly at the eased position — zero lag
  */
 
 import { useRef, useEffect, useState } from 'react'
 
-// Frame-rate-independent damp: 1 - exp(-lambda * dt)
-// LAMBDA=1.85 → ~2.6s to settle. 15% faster than 1.6.
-const LAMBDA = 1.85
+// Lusion uses quadInOut easing on the scroll ratio
+function quadInOut(t: number): number {
+  return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2
+}
 
 function buildPath(vH: number): string {
   if (vH < 100) return ''
-  // 96px = ~1 inch margin from bottom edge
   const usableH = vH - 96
   const s = usableH / 6
 
@@ -45,13 +46,9 @@ export default function VerticalThreadLine({
   opacity     = 0.7,
   strokeWidth = 21,
 }: Props) {
-  const wrapRef    = useRef<HTMLDivElement>(null)
-  const pathRef    = useRef<SVGPathElement>(null)
-  const lenRef     = useRef(0)
-  const rafIdRef   = useRef<number | null>(null)
-  const targetRef  = useRef(0)
-  const currentRef = useRef(0)
-  const lastTsRef  = useRef(-1)
+  const wrapRef  = useRef<HTMLDivElement>(null)
+  const pathRef  = useRef<SVGPathElement>(null)
+  const lenRef   = useRef(0)
 
   const [size, setSize] = useState({ w: 0, h: 0 })
 
@@ -83,56 +80,28 @@ export default function VerticalThreadLine({
     return () => cancelAnimationFrame(id)
   }, [size])
 
-  // ── 3. Frame-rate-independent damp loop ────────────────────────────────
-  useEffect(() => {
-    const loop = (ts: number) => {
-      rafIdRef.current = requestAnimationFrame(loop)
-
-      // dt in seconds, capped at 100ms to avoid jumps after tab switch
-      const dt = lastTsRef.current < 0
-        ? 1 / 60
-        : Math.min((ts - lastTsRef.current) / 1000, 0.1)
-      lastTsRef.current = ts
-
-      // Exponential damp: same formula Lenis uses internally
-      const factor = 1 - Math.exp(-LAMBDA * dt)
-      const diff = targetRef.current - currentRef.current
-
-      if (Math.abs(diff) < 0.00005) {
-        currentRef.current = targetRef.current
-      } else {
-        currentRef.current += diff * factor
-      }
-
-      const path = pathRef.current
-      const len  = lenRef.current
-      if (path && len) {
-        path.style.strokeDashoffset = `${len * (1 - currentRef.current)}`
-      }
-    }
-    rafIdRef.current = requestAnimationFrame(loop)
-    return () => { if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current) }
-  }, [])
-
-  // ── 4. Scroll → target (mapped to container height, not full page) ────
+  // ── 3. Scroll → draw (NO lerp — Lenis is already smooth) ──────────────
   useEffect(() => {
     const update = () => {
       const parent = wrapRef.current?.parentElement
-      if (!parent) return
+      const path   = pathRef.current
+      const len    = lenRef.current
+      if (!parent || !path || !len) return
 
       const rect = parent.getBoundingClientRect()
 
-      // 0 = container top is at viewport top
-      // 1 = container bottom is at viewport top
+      // 0 = container top at viewport top, 1 = container bottom at viewport top
       const scrolled = -rect.top
       const range    = Math.max(1, rect.height)
-      if (range <= 0) return
 
-      const raw = scrolled / range
-      targetRef.current = Math.min(1, Math.max(0, raw))
+      const raw  = Math.min(1, Math.max(0, scrolled / range))
+      const eased = quadInOut(raw)
+
+      // Write directly — no damp, no RAF loop. Lenis fires this 60fps.
+      path.style.strokeDashoffset = `${len * (1 - eased)}`
     }
 
-    // smooth-scroll fires every rAF from Lenis — this is the smooth source
+    // smooth-scroll fires every rAF from Lenis — already interpolated
     window.addEventListener('smooth-scroll', update as EventListener, { passive: true })
     window.addEventListener('scroll', update, { passive: true })
     update()
