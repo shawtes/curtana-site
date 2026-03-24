@@ -3,16 +3,9 @@
 /**
  * useAmbientAudio — Procedural ambient soundscape driven by animation progress.
  *
- * Layers (all procedural — no audio files needed):
- *   Surface  (p 0.00–0.30)  Warm pad + filtered noise (wind on water)
- *   Descend  (p 0.20–0.60)  Low drone + bubble-like resonant noise
- *   Deep     (p 0.50–0.85)  Sub-bass + slow evolving filter
- *   Ascend   (p 0.75–1.00)  Rising tone + opening filter
- *
- * Master low-pass filter sweeps 8000 Hz → 250 Hz → 8000 Hz with depth.
- *
- * Audio is gated behind a user gesture (call `enable()` from a click handler).
- * Respects prefers-reduced-motion by staying silent.
+ * Audio is built immediately and resumed on ANY user gesture.
+ * Browsers require a gesture to unlock AudioContext — we attach listeners
+ * to every possible event and keep retrying until it works.
  */
 
 import { useRef, useCallback, useEffect } from 'react'
@@ -21,18 +14,16 @@ import { useRef, useCallback, useEffect } from 'react'
 function fadeIn(p: number, start: number, end: number): number {
   if (p <= start) return 0
   if (p >= end)   return 1
-  const t = (p - start) / (end - start)
-  return Math.sin(t * Math.PI / 2)
+  return Math.sin(((p - start) / (end - start)) * Math.PI / 2)
 }
 
 function fadeOut(p: number, start: number, end: number): number {
   if (p <= start) return 1
   if (p >= end)   return 0
-  const t = (p - start) / (end - start)
-  return Math.cos(t * Math.PI / 2)
+  return Math.cos(((p - start) / (end - start)) * Math.PI / 2)
 }
 
-// ── Noise buffer generator ──────────────────────────────────────────────────
+// ── Noise buffer ────────────────────────────────────────────────────────────
 function createNoiseBuffer(ctx: AudioContext, seconds: number): AudioBuffer {
   const len    = ctx.sampleRate * seconds
   const buffer = ctx.createBuffer(1, len, ctx.sampleRate)
@@ -41,49 +32,17 @@ function createNoiseBuffer(ctx: AudioContext, seconds: number): AudioBuffer {
   return buffer
 }
 
-interface AmbientAudio {
-  /** Call from a click/touch handler to unlock audio */
-  enable:  () => void
-  /** Call from a click/touch handler to toggle mute */
-  toggle:  () => void
-  /** Update every frame with current animation progress 0→1 */
-  update:  (progress: number) => void
-  /** Whether audio is currently enabled */
-  enabled: boolean
-  /** Cleanup */
-  destroy: () => void
-}
+export function useAmbientAudio() {
+  const ctxRef   = useRef<AudioContext | null>(null)
+  const builtRef = useRef(false)
+  const mutedRef = useRef(false)
+  const nodesRef = useRef<Record<string, AudioNode> | null>(null)
 
-export function useAmbientAudio(): AmbientAudio {
-  const ctxRef     = useRef<AudioContext | null>(null)
-  const enabledRef = useRef(false)
-  const mutedRef   = useRef(false)
-  const nodesRef   = useRef<{
-    masterGain:   GainNode
-    masterFilter: BiquadFilterNode
-    // Surface layer
-    surfacePad:   OscillatorNode
-    surfacePad5:  OscillatorNode
-    surfaceNoise: AudioBufferSourceNode
-    surfaceGain:  GainNode
-    surfaceNoiseFilter: BiquadFilterNode
-    // Descend layer
-    descendDrone: OscillatorNode
-    descendNoise: AudioBufferSourceNode
-    descendGain:  GainNode
-    descendNoiseFilter: BiquadFilterNode
-    // Deep layer
-    deepSub:      OscillatorNode
-    deepLfo:      OscillatorNode
-    deepLfoGain:  GainNode
-    deepGain:     GainNode
-    // Ascend layer
-    ascendTone:   OscillatorNode
-    ascendGain:   GainNode
-  } | null>(null)
-
+  // Build the entire audio graph once
   const build = useCallback(() => {
-    if (ctxRef.current) return
+    if (builtRef.current) return
+    builtRef.current = true
+
     const ctx = new AudioContext()
     ctxRef.current = ctx
 
@@ -94,226 +53,232 @@ export function useAmbientAudio(): AmbientAudio {
     masterFilter.Q.value = 0.7
 
     const masterGain = ctx.createGain()
-    masterGain.gain.value = 0.55  // overall volume
-
+    masterGain.gain.value = 0.6
     masterFilter.connect(masterGain)
     masterGain.connect(ctx.destination)
 
-    // ── Surface layer: warm pad + wind noise ──────────────────────────────
+    // ── Surface: warm pad + wind/water noise ──────────────────────────────
     const surfaceGain = ctx.createGain()
-    surfaceGain.gain.value = 0.7  // start audible — surface plays at p=0
+    surfaceGain.gain.value = 0.7
     surfaceGain.connect(masterFilter)
 
-    // Pad: root (C3 ~130Hz) + fifth (G3 ~196Hz), triangle for warmth
-    const surfacePad = ctx.createOscillator()
-    surfacePad.type = 'triangle'
-    surfacePad.frequency.value = 130.81
-    surfacePad.connect(surfaceGain)
+    const pad1 = ctx.createOscillator()
+    pad1.type = 'triangle'
+    pad1.frequency.value = 130.81  // C3
+    pad1.connect(surfaceGain)
 
-    const surfacePad5 = ctx.createOscillator()
-    surfacePad5.type = 'triangle'
-    surfacePad5.frequency.value = 196.0
-    const pad5Gain = ctx.createGain()
-    pad5Gain.gain.value = 0.6
-    surfacePad5.connect(pad5Gain)
-    pad5Gain.connect(surfaceGain)
+    const pad2 = ctx.createOscillator()
+    pad2.type = 'triangle'
+    pad2.frequency.value = 196.0   // G3
+    const pad2g = ctx.createGain()
+    pad2g.gain.value = 0.5
+    pad2.connect(pad2g)
+    pad2g.connect(surfaceGain)
 
-    // Wind/water noise — high-pass filtered white noise
-    const surfaceNoiseFilter = ctx.createBiquadFilter()
-    surfaceNoiseFilter.type = 'highpass'
-    surfaceNoiseFilter.frequency.value = 3000
-    surfaceNoiseFilter.Q.value = 0.3
-    surfaceNoiseFilter.connect(surfaceGain)
+    // Wind noise
+    const noiseFilter = ctx.createBiquadFilter()
+    noiseFilter.type = 'highpass'
+    noiseFilter.frequency.value = 2500
+    noiseFilter.Q.value = 0.3
+    noiseFilter.connect(surfaceGain)
 
-    const noiseBuffer = createNoiseBuffer(ctx, 4)
-    const surfaceNoise = ctx.createBufferSource()
-    surfaceNoise.buffer = noiseBuffer
-    surfaceNoise.loop = true
-    const surfaceNoiseGain = ctx.createGain()
-    surfaceNoiseGain.gain.value = 0.15
-    surfaceNoise.connect(surfaceNoiseGain)
-    surfaceNoiseGain.connect(surfaceNoiseFilter)
+    const noiseBuf = createNoiseBuffer(ctx, 4)
+    const noise1 = ctx.createBufferSource()
+    noise1.buffer = noiseBuf
+    noise1.loop = true
+    const noise1g = ctx.createGain()
+    noise1g.gain.value = 0.18
+    noise1.connect(noise1g)
+    noise1g.connect(noiseFilter)
 
-    // ── Descend layer: low drone + resonant bubbles ──────────────────────
+    // ── Descend: low drone + bubble noise ─────────────────────────────────
     const descendGain = ctx.createGain()
     descendGain.gain.value = 0
     descendGain.connect(masterFilter)
 
-    const descendDrone = ctx.createOscillator()
-    descendDrone.type = 'sine'
-    descendDrone.frequency.value = 65.41  // C2
-    const droneGainNode = ctx.createGain()
-    droneGainNode.gain.value = 0.7
-    descendDrone.connect(droneGainNode)
-    droneGainNode.connect(descendGain)
+    const drone = ctx.createOscillator()
+    drone.type = 'sine'
+    drone.frequency.value = 65.41  // C2
+    const droneg = ctx.createGain()
+    droneg.gain.value = 0.7
+    drone.connect(droneg)
+    droneg.connect(descendGain)
 
-    // Bubble noise — band-pass filtered
-    const descendNoiseFilter = ctx.createBiquadFilter()
-    descendNoiseFilter.type = 'bandpass'
-    descendNoiseFilter.frequency.value = 800
-    descendNoiseFilter.Q.value = 5
-    descendNoiseFilter.connect(descendGain)
+    const bubbleFilter = ctx.createBiquadFilter()
+    bubbleFilter.type = 'bandpass'
+    bubbleFilter.frequency.value = 800
+    bubbleFilter.Q.value = 5
+    bubbleFilter.connect(descendGain)
 
-    const descendNoise = ctx.createBufferSource()
-    descendNoise.buffer = noiseBuffer
-    descendNoise.loop = true
-    const descendNoiseGain = ctx.createGain()
-    descendNoiseGain.gain.value = 0.04
-    descendNoise.connect(descendNoiseGain)
-    descendNoiseGain.connect(descendNoiseFilter)
+    const noise2 = ctx.createBufferSource()
+    noise2.buffer = noiseBuf
+    noise2.loop = true
+    const noise2g = ctx.createGain()
+    noise2g.gain.value = 0.05
+    noise2.connect(noise2g)
+    noise2g.connect(bubbleFilter)
 
-    // ── Deep layer: sub-bass with slow LFO filter wobble ─────────────────
+    // ── Deep: sub-bass with LFO wobble ────────────────────────────────────
     const deepGain = ctx.createGain()
     deepGain.gain.value = 0
     deepGain.connect(masterFilter)
 
-    const deepSub = ctx.createOscillator()
-    deepSub.type = 'sine'
-    deepSub.frequency.value = 41.2  // E1
-    deepSub.connect(deepGain)
+    const sub = ctx.createOscillator()
+    sub.type = 'sine'
+    sub.frequency.value = 41.2  // E1
+    sub.connect(deepGain)
 
-    // LFO modulates filter for slow evolving feel
+    const lfo = ctx.createOscillator()
+    lfo.type = 'sine'
+    lfo.frequency.value = 0.15
+    const lfog = ctx.createGain()
+    lfog.gain.value = 100
+    lfo.connect(lfog)
+
     const deepFilter = ctx.createBiquadFilter()
     deepFilter.type = 'lowpass'
     deepFilter.frequency.value = 200
     deepFilter.Q.value = 4
     deepFilter.connect(deepGain)
+    lfog.connect(deepFilter.frequency)
 
-    const deepLfo = ctx.createOscillator()
-    deepLfo.type = 'sine'
-    deepLfo.frequency.value = 0.15  // very slow wobble
-    const deepLfoGain = ctx.createGain()
-    deepLfoGain.gain.value = 100  // modulation range ±100 Hz
-    deepLfo.connect(deepLfoGain)
-    deepLfoGain.connect(deepFilter.frequency)
-
-    // ── Ascend layer: rising tone ────────────────────────────────────────
+    // ── Ascend: rising tone ───────────────────────────────────────────────
     const ascendGain = ctx.createGain()
     ascendGain.gain.value = 0
     ascendGain.connect(masterFilter)
 
-    const ascendTone = ctx.createOscillator()
-    ascendTone.type = 'sine'
-    ascendTone.frequency.value = 261.63  // C4
-    const ascendToneGain = ctx.createGain()
-    ascendToneGain.gain.value = 0.5
-    ascendTone.connect(ascendToneGain)
-    ascendToneGain.connect(ascendGain)
+    const rise = ctx.createOscillator()
+    rise.type = 'sine'
+    rise.frequency.value = 261.63  // C4
+    const riseg = ctx.createGain()
+    riseg.gain.value = 0.5
+    rise.connect(riseg)
+    riseg.connect(ascendGain)
 
-    // ── Start all sources ────────────────────────────────────────────────
+    // Start everything
     const now = ctx.currentTime
-    surfacePad.start(now)
-    surfacePad5.start(now)
-    surfaceNoise.start(now)
-    descendDrone.start(now)
-    descendNoise.start(now)
-    deepSub.start(now)
-    deepLfo.start(now)
-    ascendTone.start(now)
+    pad1.start(now)
+    pad2.start(now)
+    noise1.start(now)
+    drone.start(now)
+    noise2.start(now)
+    sub.start(now)
+    lfo.start(now)
+    rise.start(now)
 
     nodesRef.current = {
       masterGain, masterFilter,
-      surfacePad, surfacePad5, surfaceNoise, surfaceGain, surfaceNoiseFilter,
-      descendDrone, descendNoise, descendGain, descendNoiseFilter,
-      deepSub, deepLfo, deepLfoGain, deepGain,
-      ascendTone, ascendGain,
+      surfaceGain, descendGain, deepGain, ascendGain,
+      bubbleFilter, rise,
     }
+
+    // Try to resume immediately (works if called during gesture)
+    ctx.resume().catch(() => {})
   }, [])
 
-  const enable = useCallback(() => {
-    if (enabledRef.current) return
-    // Respect prefers-reduced-motion
-    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
-    enabledRef.current = true
-    mutedRef.current = false
-    build()
-    ctxRef.current?.resume()
+  // Aggressively try to resume the AudioContext
+  const tryResume = useCallback(() => {
+    if (!ctxRef.current) build()
+    const ctx = ctxRef.current
+    if (ctx && ctx.state === 'suspended') {
+      ctx.resume().catch(() => {})
+    }
   }, [build])
 
+  // Toggle mute
   const toggle = useCallback(() => {
-    if (!enabledRef.current) {
-      enable()
-      return
-    }
+    tryResume()
     mutedRef.current = !mutedRef.current
-    if (nodesRef.current) {
-      nodesRef.current.masterGain.gain.setTargetAtTime(
-        mutedRef.current ? 0 : 0.55,
-        ctxRef.current!.currentTime,
+    const mg = nodesRef.current?.masterGain as GainNode | undefined
+    if (mg && ctxRef.current) {
+      mg.gain.setTargetAtTime(
+        mutedRef.current ? 0 : 0.6,
+        ctxRef.current.currentTime,
         0.3
       )
     }
-  }, [enable])
+  }, [tryResume])
 
+  // Update layers based on journey progress
   const update = useCallback((progress: number) => {
-    if (!enabledRef.current || !nodesRef.current || !ctxRef.current) return
+    if (!nodesRef.current || !ctxRef.current || mutedRef.current) return
     const n   = nodesRef.current
     const ctx = ctxRef.current
     const t   = ctx.currentTime
 
-    // ── Master low-pass filter: dips deep underwater, opens on ascent ────
-    // Surface (8000) → Deep at p=0.6 (250) → Ascend back (6000)
+    const mg = n.masterFilter as BiquadFilterNode
+    const sg = n.surfaceGain  as GainNode
+    const dg = n.descendGain  as GainNode
+    const eg = n.deepGain     as GainNode
+    const ag = n.ascendGain   as GainNode
+    const bf = n.bubbleFilter as BiquadFilterNode
+    const ri = n.rise         as OscillatorNode
+
+    // Master low-pass: surface bright → deep muffled → ascend opens
     let lpFreq: number
     if (progress < 0.6) {
       lpFreq = 8000 - (8000 - 250) * (progress / 0.6)
     } else {
       lpFreq = 250 + (6000 - 250) * ((progress - 0.6) / 0.4)
     }
-    n.masterFilter.frequency.setTargetAtTime(lpFreq, t, 0.1)
+    mg.frequency.setTargetAtTime(lpFreq, t, 0.1)
 
-    // ── Layer gains (equal-power crossfade) ──────────────────────────────
     // Surface: full at 0, fades out 0.20–0.50
-    const surfVol = fadeOut(progress, 0.20, 0.50)
-    n.surfaceGain.gain.setTargetAtTime(surfVol * 0.7, t, 0.15)
+    sg.gain.setTargetAtTime(fadeOut(progress, 0.20, 0.50) * 0.7, t, 0.15)
 
-    // Descend: fade in 0.15–0.35, fade out 0.50–0.70
-    const descVol = fadeIn(progress, 0.15, 0.35) * fadeOut(progress, 0.50, 0.70)
-    n.descendGain.gain.setTargetAtTime(descVol * 0.5, t, 0.15)
+    // Descend: in 0.15–0.35, out 0.50–0.70
+    dg.gain.setTargetAtTime(
+      fadeIn(progress, 0.15, 0.35) * fadeOut(progress, 0.50, 0.70) * 0.5,
+      t, 0.15
+    )
 
-    // Deep: fade in 0.45–0.60, fade out 0.80–0.92
-    const deepVol = fadeIn(progress, 0.45, 0.60) * fadeOut(progress, 0.80, 0.92)
-    n.deepGain.gain.setTargetAtTime(deepVol * 0.55, t, 0.15)
+    // Deep: in 0.45–0.60, out 0.80–0.92
+    eg.gain.setTargetAtTime(
+      fadeIn(progress, 0.45, 0.60) * fadeOut(progress, 0.80, 0.92) * 0.55,
+      t, 0.15
+    )
 
-    // Ascend: fade in 0.78–0.90
+    // Ascend: in 0.78–0.92
     const ascVol = fadeIn(progress, 0.78, 0.92)
-    n.ascendGain.gain.setTargetAtTime(ascVol * 0.4, t, 0.15)
+    ag.gain.setTargetAtTime(ascVol * 0.4, t, 0.15)
+    ri.frequency.setTargetAtTime(261.63 + ascVol * 260, t, 0.3)
 
-    // Rising pitch on ascend tone
-    const ascendFreq = 261.63 + ascVol * 260  // C4 → C5
-    n.ascendTone.frequency.setTargetAtTime(ascendFreq, t, 0.3)
-
-    // Bubble filter resonance increases with depth
-    n.descendNoiseFilter.Q.setTargetAtTime(5 + progress * 10, t, 0.2)
+    // Bubble resonance increases with depth
+    bf.Q.setTargetAtTime(5 + progress * 10, t, 0.2)
   }, [])
 
-  const destroy = useCallback(() => {
-    if (ctxRef.current) {
-      ctxRef.current.close()
-      ctxRef.current = null
-    }
-    nodesRef.current = null
-    enabledRef.current = false
-  }, [])
-
-  // Pause when tab is hidden
+  // Build audio graph immediately on mount, attach gesture listeners
   useEffect(() => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return
+
+    build()
+
+    // Keep trying to resume on any user gesture
+    const resume = () => tryResume()
+    const events = ['click', 'touchstart', 'touchend', 'keydown', 'mousedown', 'pointerdown'] as const
+    events.forEach(e => document.addEventListener(e, resume, { capture: true }))
+
+    // Visibility API: pause/resume
     const onVis = () => {
       if (!ctxRef.current) return
       if (document.hidden) ctxRef.current.suspend()
-      else if (enabledRef.current && !mutedRef.current) ctxRef.current.resume()
+      else if (!mutedRef.current) ctxRef.current.resume().catch(() => {})
     }
     document.addEventListener('visibilitychange', onVis)
+
     return () => {
+      events.forEach(e => document.removeEventListener(e, resume, { capture: true } as EventListenerOptions))
       document.removeEventListener('visibilitychange', onVis)
-      destroy()
+      ctxRef.current?.close()
+      ctxRef.current = null
+      nodesRef.current = null
+      builtRef.current = false
     }
-  }, [destroy])
+  }, [build, tryResume])
 
   return {
-    enable,
     toggle,
     update,
-    get enabled() { return enabledRef.current && !mutedRef.current },
-    destroy,
+    get muted() { return mutedRef.current },
   }
 }
