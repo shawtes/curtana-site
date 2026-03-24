@@ -17,20 +17,25 @@ function easeOutQuad(t: number): number {
   return 1 - (1 - t) * (1 - t)
 }
 
+// Inset boundaries: keep path within L–R margins so stroke+glow
+// never bleeds outside the rendered page.
+const L = 60   // left boundary (in 1000-unit viewBox)
+const R = 940  // right boundary
+
 function buildPath(vH: number): string {
   if (vH < 100) return ''
   const usableH = vH - 96
   const s = usableH / 6
 
   return [
-    `M 0 ${s * 0.15}`,
-    `C 200 ${s * 0.15}, 550 ${s * 0.5},  500 ${s * 1.0}`,
-    `C 450 ${s * 1.4},  80 ${s * 1.7},   80 ${s * 1.3}`,
-    `C  80 ${s * 1.7}, 420 ${s * 1.9},  500 ${s * 2.1}`,
-    `C 580 ${s * 2.3}, 940 ${s * 2.7},  920 ${s * 3.1}`,
-    `C 900 ${s * 3.5}, 480 ${s * 3.7},  460 ${s * 3.9}`,
-    `C 440 ${s * 4.1},  60 ${s * 4.4},   80 ${s * 4.7}`,
-    `C 100 ${s * 5.0}, 520 ${s * 5.2},  500 ${s * 5.5}`,
+    `M ${L} ${s * 0.15}`,
+    `C 220 ${s * 0.15}, 550 ${s * 0.5},  500 ${s * 1.0}`,
+    `C 450 ${s * 1.4},  ${L + 20} ${s * 1.7},   ${L + 20} ${s * 1.3}`,
+    `C ${L + 20} ${s * 1.7}, 420 ${s * 1.9},  500 ${s * 2.1}`,
+    `C 580 ${s * 2.3}, ${R} ${s * 2.7},  ${R - 20} ${s * 3.1}`,
+    `C ${R - 40} ${s * 3.5}, 480 ${s * 3.7},  460 ${s * 3.9}`,
+    `C 440 ${s * 4.1},  ${L + 20} ${s * 4.4},   ${L + 20} ${s * 4.7}`,
+    `C ${L + 40} ${s * 5.0}, 520 ${s * 5.2},  500 ${s * 5.5}`,
     `C 490 ${s * 5.7}, 460 ${s * 5.9},  480 ${usableH}`,
   ].join(' ')
 }
@@ -132,7 +137,7 @@ export default function VerticalThreadLine({
         height={size.h}
         style={{
           display: 'block',
-          overflow: 'visible',
+          overflow: 'hidden',
           filter: `drop-shadow(0 0 6px ${color}) drop-shadow(0 0 18px ${color})`,
         }}
       >
