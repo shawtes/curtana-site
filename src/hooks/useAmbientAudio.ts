@@ -108,7 +108,7 @@ export function useAmbientAudio() {
     masterFilter.Q.value = 0.5
 
     const masterGain = ctx.createGain()
-    masterGain.gain.value = 0.45
+    masterGain.gain.value = 0.18
     masterFilter.connect(masterGain)
     masterGain.connect(ctx.destination)
 
@@ -242,7 +242,7 @@ export function useAmbientAudio() {
     mutedRef.current = !mutedRef.current
     const mg = nodes.current?.masterGain
     if (mg && ctxRef.current) {
-      mg.gain.setTargetAtTime(mutedRef.current ? 0 : 0.45, ctxRef.current.currentTime, 0.4)
+      mg.gain.setTargetAtTime(mutedRef.current ? 0 : 0.18, ctxRef.current.currentTime, 0.4)
     }
   }, [tryResume])
 

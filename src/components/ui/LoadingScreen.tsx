@@ -11,22 +11,19 @@ import { motion, AnimatePresence } from 'framer-motion'
 
 export default function LoadingScreen({ onComplete }: { onComplete: () => void }) {
   const [progress, setProgress]   = useState(0)
-  const [phase, setPhase]         = useState<'loading' | 'ready' | 'welcome' | 'exit'>('loading')
+  const [phase, setPhase]         = useState<'loading' | 'welcome' | 'exit'>('loading')
   const doneRef                   = useRef(false)
-  const assetsReady               = useRef(false)
 
-  // Called when user taps "enter" — this click is the gesture that unlocks audio
-  const enter = useCallback(() => {
-    if (doneRef.current || !assetsReady.current) return
+  const finish = useCallback(() => {
+    if (doneRef.current) return
     doneRef.current = true
     setProgress(1)
-    setPhase('welcome')
-    setTimeout(() => setPhase('exit'),   1600)
-    setTimeout(() => onComplete(),       2700)
+    setTimeout(() => setPhase('welcome'), 350)
+    setTimeout(() => setPhase('exit'),   2000)
+    setTimeout(() => onComplete(),       3100)
   }, [onComplete])
 
   useEffect(() => {
-    // Animate fill to ~88 % over 2.3 s, then hold for real assets
     const t0   = performance.now()
     const RAMP = 2300
     let raf: number
@@ -39,7 +36,6 @@ export default function LoadingScreen({ onComplete }: { onComplete: () => void }
     }
     raf = requestAnimationFrame(tick)
 
-    // Minimum visible time + actual asset preloads
     const minTime = new Promise<void>(r => setTimeout(r, 2500))
 
     const preloadImg = (src: string) =>
@@ -54,11 +50,7 @@ export default function LoadingScreen({ onComplete }: { onComplete: () => void }
       preloadImg('/textures/waternormals.jpg'),
       preloadImg('/models/meditation/textures/RyJeane_face_1001.jpeg'),
       preloadImg('/models/meditation/textures/RyJeane_torso_1002.jpeg'),
-    ]).then(() => {
-      assetsReady.current = true
-      setProgress(1)
-      setPhase('ready')
-    })
+    ]).then(finish)
 
     return () => cancelAnimationFrame(raf)
   }, [])
@@ -154,8 +146,8 @@ export default function LoadingScreen({ onComplete }: { onComplete: () => void }
         >
           <AnimatePresence mode="wait">
 
-            {/* ── Loading / Ready emblem ────────────────────────────────── */}
-            {(phase === 'loading' || phase === 'ready') && (
+            {/* ── Loading emblem ─────────────────────────────────────────── */}
+            {phase === 'loading' && (
               <motion.div
                 key="emblem"
                 initial={{ opacity: 0, y: 18 }}
@@ -169,8 +161,8 @@ export default function LoadingScreen({ onComplete }: { onComplete: () => void }
                   width="300"
                   style={{ display: 'block', margin: '0 auto', overflow: 'visible' }}
                 >
-                  {/* ── Left cup — barely tilted to pour, emptying ── */}
-                  <g transform="translate(62, 16) rotate(-10, 0, 28)">
+                  {/* ── Left cup — tilted to pour, emptying ── */}
+                  <g transform="translate(62, -2) rotate(-20, 0, 28)">
                     {/* Water fill */}
                     {leftWaterPath && (
                       <path d={leftWaterPath} fill="rgba(127,168,130,0.40)" />
@@ -346,59 +338,24 @@ export default function LoadingScreen({ onComplete }: { onComplete: () => void }
                   Flow With Curtana
                 </p>
 
-                {phase === 'loading' ? (
-                  /* Progress line */
-                  <div style={{ marginTop: 22, display: 'flex', justifyContent: 'center' }}>
+                {/* Progress line */}
+                <div style={{ marginTop: 22, display: 'flex', justifyContent: 'center' }}>
+                  <div style={{
+                    width:        100,
+                    height:       1,
+                    background:   'rgba(245,240,232,0.07)',
+                    borderRadius: 1,
+                    overflow:     'hidden',
+                  }}>
                     <div style={{
-                      width:        100,
-                      height:       1,
-                      background:   'rgba(245,240,232,0.07)',
+                      height:     '100%',
+                      width:      `${progress * 100}%`,
+                      background: 'linear-gradient(90deg, rgba(127,168,130,0.3), rgba(127,168,130,0.95))',
+                      transition: 'width 100ms linear',
                       borderRadius: 1,
-                      overflow:     'hidden',
-                    }}>
-                      <div style={{
-                        height:     '100%',
-                        width:      `${progress * 100}%`,
-                        background: 'linear-gradient(90deg, rgba(127,168,130,0.3), rgba(127,168,130,0.95))',
-                        transition: 'width 100ms linear',
-                        borderRadius: 1,
-                      }} />
-                    </div>
+                    }} />
                   </div>
-                ) : (
-                  /* Enter button — this click unlocks audio */
-                  <motion.button
-                    onClick={enter}
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1] }}
-                    style={{
-                      marginTop:       22,
-                      padding:         '10px 32px',
-                      border:          '1px solid rgba(127,168,130,0.35)',
-                      borderRadius:    100,
-                      background:      'transparent',
-                      cursor:          'pointer',
-                      fontFamily:      'var(--font-body, sans-serif)',
-                      fontSize:        '10px',
-                      letterSpacing:   '3px',
-                      textTransform:   'uppercase',
-                      color:           'var(--sage, #7fa882)',
-                      outline:         'none',
-                      transition:      'border-color 0.3s, background 0.3s',
-                    }}
-                    onMouseEnter={e => {
-                      e.currentTarget.style.borderColor = 'rgba(127,168,130,0.6)'
-                      e.currentTarget.style.background = 'rgba(127,168,130,0.08)'
-                    }}
-                    onMouseLeave={e => {
-                      e.currentTarget.style.borderColor = 'rgba(127,168,130,0.35)'
-                      e.currentTarget.style.background = 'transparent'
-                    }}
-                  >
-                    enter experience
-                  </motion.button>
-                )}
+                </div>
               </motion.div>
             )}
 
