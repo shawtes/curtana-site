@@ -12,12 +12,14 @@
 import { useRef, useEffect, useState } from 'react'
 
 // Frame-rate-independent damp: 1 - exp(-lambda * dt)
-// LAMBDA=3 → ~1.5s to settle. Same feel as Lenis with lerp ~0.04.
-const LAMBDA = 3
+// LAMBDA=0.9 → ~5s to settle. 70% slower than previous (LAMBDA=3).
+const LAMBDA = 0.9
 
 function buildPath(vH: number): string {
   if (vH < 100) return ''
-  const s = vH / 6
+  // 96px = ~1 inch margin from bottom edge
+  const usableH = vH - 96
+  const s = usableH / 6
 
   return [
     `M 0 ${s * 0.15}`,
@@ -28,7 +30,7 @@ function buildPath(vH: number): string {
     `C 900 ${s * 3.5}, 480 ${s * 3.7},  460 ${s * 3.9}`,
     `C 440 ${s * 4.1},  60 ${s * 4.4},   80 ${s * 4.7}`,
     `C 100 ${s * 5.0}, 520 ${s * 5.2},  500 ${s * 5.5}`,
-    `C 490 ${s * 5.7}, 460 ${s * 5.9},  480 ${vH}`,
+    `C 490 ${s * 5.7}, 460 ${s * 5.9},  480 ${usableH}`,
   ].join(' ')
 }
 
