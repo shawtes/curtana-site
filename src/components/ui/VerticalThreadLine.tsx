@@ -12,9 +12,9 @@
 
 import { useRef, useEffect, useState } from 'react'
 
-// Lusion uses quadInOut easing on the scroll ratio
-function quadInOut(t: number): number {
-  return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2
+// Ease-out quad — fast start, gentle landing. Line keeps up early, settles at end.
+function easeOutQuad(t: number): number {
+  return 1 - (1 - t) * (1 - t)
 }
 
 function buildPath(vH: number): string {
@@ -95,7 +95,7 @@ export default function VerticalThreadLine({
       const range    = Math.max(1, rect.height)
 
       const raw  = Math.min(1, Math.max(0, scrolled / range))
-      const eased = quadInOut(raw)
+      const eased = easeOutQuad(raw)
 
       // Write directly — no damp, no RAF loop. Lenis fires this 60fps.
       path.style.strokeDashoffset = `${len * (1 - eased)}`
