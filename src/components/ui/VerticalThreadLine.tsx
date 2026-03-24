@@ -12,8 +12,8 @@
 import { useRef, useEffect, useState } from 'react'
 
 // Frame-rate-independent damp: 1 - exp(-lambda * dt)
-// LAMBDA=0.9 → ~5s to settle. 70% slower than previous (LAMBDA=3).
-const LAMBDA = 0.9
+// LAMBDA=0.5 → ~9s to settle. Very slow, meditative draw.
+const LAMBDA = 0.5
 
 function buildPath(vH: number): string {
   if (vH < 100) return ''
@@ -132,8 +132,7 @@ export default function VerticalThreadLine({
       if (range <= 0) return
 
       const raw = (scrollY - startScroll) / range
-      // Lead scroll by 15% so line is always slightly ahead
-      targetRef.current = Math.min(1, Math.max(0, raw * 1.15 + 0.03))
+      targetRef.current = Math.min(1, Math.max(0, raw))
     }
 
     // smooth-scroll fires every rAF from Lenis — this is the smooth source
