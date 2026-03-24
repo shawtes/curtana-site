@@ -1,272 +1,168 @@
-# CLAUDE.md — Flow With Curtana — Website Redesign
+# CLAUDE.md — Flow With Curtana — Website (curtana-site)
 
-> Read this EVERY session before touching a single file.
-> This is the complete brain of the project — brand, goals, design system, 3D vision, all content decisions.
-
----
-
-## 👤 The Client: Curtana
-
-**Brand:** Flow With Curtana
-**URL:** flowwithcurtana.com
-**Industry:** Personal wellness — yoga, movement, breathwork, coaching
-**Audience:** People seeking mind-body transformation, stress relief, holistic health
-**Platform origin:** Instagram (`link_in_bio` in URL = strong social following)
-**Tone:** Warm, grounded, fluid, empowering — NOT clinical, NOT corporate
-
-**The business is Shaw's brother's business.** Treat this with the same care and ambition as the Shaw portfolio.
+> **Read this at the start of every session. This is the single source of truth.**
+> Updated: 2026-03-23 | Status: Active Development
 
 ---
 
-## 🎯 Design Vision: Lusion-Inspired Wellness
+## 🗂 Project State Snapshot
 
-This is NOT a typical soft-pastel yoga website.
-This is a **cinematic, immersive wellness experience** — inspired by Lusion's WebGL storytelling,
-but translated into the language of breath, water, flow, and the human body.
+### What's Built (Production-Ready or Close)
+| Component | File | Status |
+|---|---|---|
+| SubmersionJourney (7-act 3D hero) | `components/3d/SubmersionJourney.tsx` | ✅ Functional, needs polish |
+| WaterPlane (Three.js Water shader) | `components/3d/WaterPlane.tsx` | ✅ Near-black moonlit, 5000×5000 |
+| StarField (3-layer twinkling) | `components/3d/StarField.tsx` | ✅ Full spectral color system |
+| WarpStreaks (Canvas 2D) | `components/3d/WarpStreaks.tsx` | ✅ Centers correctly |
+| AuraStage (WebGL content bg) | `components/3d/AuraStage.tsx` | ✅ Scroll-driven |
+| AuraChapters (text overlays) | `components/3d/AuraChapters.tsx` | ✅ |
+| Home Page | `app/page.tsx` | ✅ SubmersionJourney + AuraStage |
+| Nav | `components/layout/Nav.tsx` | ✅ Needs transition polish |
+| Footer | `components/layout/Footer.tsx` | ✅ |
+| WaterCursor | `components/ui/WaterCursor.tsx` | ✅ Sage bloom + ripple trail |
+| ScrollReveal | `components/ui/ScrollReveal.tsx` | ✅ |
+| About Page | `app/about/page.tsx` | 🔶 Skeleton |
+| Services Page | `app/services/page.tsx` | 🔶 Skeleton |
+| Book Page | `app/book/page.tsx` | 🔶 Skeleton (no Calendly yet) |
+| Contact Page | `app/contact/page.tsx` | 🔶 Skeleton |
+| Virtual Scroll (Lusion-style) | `hooks/useVirtualScroll.ts` | ❌ NOT YET BUILT |
 
-**The core metaphor:** Water in motion. Breath expanding. A body finding stillness inside movement.
-
-**What Lusion does for tech → we do for wellness:**
-- Lusion: astronaut flying through space portals on scroll
-- Curtana: the viewer breathes deeper as they scroll — the world expands and softens
-
-**The signature interaction:**
-Scroll drives a slow, meditative journey through:
-1. Hero — mist/fog parts as you arrive, Curtana's name breathes in
-2. About — organic particle field forms the shape of a body in motion
-3. Services — each service card blooms open on hover like a flower
-4. Testimonials — words float and settle like leaves on water
-5. Booking — a portal of calm light invites you in
+### Act System (SubmersionJourney)
+```
+A0  0.00 → 0.15  Surface — night water, starfield, figure emerges
+A1  0.15 → 0.28  Submersion — camera breaks through water surface
+A2  0.28 → 0.45  The Deep — dark water, teal bioluminescence
+A3  0.45 → 0.62  Geometry Awakens — sacred geometry rings
+A4  0.62 → 0.78  Full Hyperspace — warp streaks, radial burst
+A5  0.78 → 0.92  The Turn — figure rotates, faces camera
+A6  0.92 → 1.00  White Bloom — light floods screen → portal out
+```
 
 ---
 
-## 🎨 Design System
+## 👤 The Client
 
-### Color Palette
+**Brand:** Flow With Curtana | **URL:** flowwithcurtana.com
+**Owner:** Curtana — Shaw's brother's business. Treat with full ambition.
+**Industry:** Yoga, breathwork, movement coaching
+**Audience:** Instagram-first. Mobile is primary. Seeking transformation, not information.
+**Tone:** Warm, grounded, sensory. NOT clinical, NOT corporate.
+
+---
+
+## 🎨 Design System (Implemented in globals.css)
+
+### CSS Variables (already in `:root`)
 ```css
-/* Grounding — earth and water tones, NOT generic wellness pastels */
---bg:           #0d0f0e;   /* deep forest dark — not pure black */
---bg2:          #141815;   /* slightly warmer dark */
---surface:      #1c211d;   /* card surfaces */
+--bg:          #0d0f0e   /* deep forest dark */
+--bg2:         #141815
+--surface:     #1c211d
 
-/* Primary brand */
---sage:         #7fa882;   /* deep sage green — the signature color */
---sage-light:   #a8c5aa;   /* lighter sage for text accents */
---sage-glow:    rgba(127, 168, 130, 0.25);
+--sage:        #7fa882   /* SIGNATURE COLOR */
+--sage-light:  #a8c5aa
+--sage-dark:   #4a6b4c
+--sage-glow:   rgba(127,168,130,0.25)
 
-/* Warmth */
---sand:         #c8b89a;   /* warm sand/skin — for body warmth */
---sand-light:   #e0d4c0;   /* light sand for text */
---cream:        #f5f0e8;   /* off-white for headings */
+--sand:        #c8b89a
+--sand-light:  #e0d4c0
+--cream:       #f5f0e8   /* headings */
 
-/* Water / sky */
---mist:         #8fb5c4;   /* misty blue for breath/water elements */
---mist-soft:    rgba(143, 181, 196, 0.15);
+--mist:        #8fb5c4
+--gold:        #c9a96e
 
-/* Accent */
---gold:         #c9a96e;   /* warm gold for special moments */
+--text:        #e8ede9
+--muted:       #7a8b7c
+--dim:         #3d4a3e
 
-/* Text */
---text:         #e8ede9;   /* primary — warm white */
---muted:        #7a8b7c;   /* secondary — muted sage */
---dim:          #3d4a3e;   /* disabled / borders */
-
-/* Borders */
---border:       rgba(127, 168, 130, 0.12);
---border2:      rgba(127, 168, 130, 0.25);
+--border:      rgba(127,168,130,0.12)
+--border2:     rgba(127,168,130,0.25)
 ```
 
-### Typography
+### Fonts (loaded via @fontsource)
 ```
-Display:  'Cormorant Garamond' — italic, elegant, editorial. Weight 300–600.
-          OR 'Playfair Display' as fallback
-          This is the voice of Curtana — feminine, authoritative, timeless.
-
-Body:     'DM Sans' — clean, modern, readable. Weight 300–400.
-          Not mono — this is human warmth, not tech.
-
-Accent:   'Cormorant Garamond' italic — for pullquotes, testimonials, mantras.
-
-NEVER: Inter, Roboto, Open Sans — too corporate, kills the vibe.
+Display: Cormorant Garamond — italic, weights 300/400/500. All editorial headings.
+Body:    DM Sans — weights 300/400/500. Clean, warm, never corporate.
+NEVER:   Inter / Roboto / Open Sans
 ```
 
-### Typography Scale
+### Motion Rules
 ```
-Hero name:   clamp(64px, 10vw, 120px) — Cormorant, weight 300, italic, letter-spacing -3px
-Section H1:  clamp(40px, 5vw, 68px)  — Cormorant, weight 400
-Card title:  24px                    — Cormorant, weight 500
-Body:        15px                    — DM Sans, weight 300, line-height 1.9
-Label:       11px                    — DM Sans, weight 400, letter-spacing 3px, uppercase
-Mantra:      clamp(20px, 3vw, 32px)  — Cormorant italic, weight 300
-```
-
-### Motion Language
-```
-Easing:    cubic-bezier(0.16, 1, 0.3, 1)  — the "breath" ease: slow start, soft landing
-Duration:  Long and slow — 800ms to 1400ms for reveals (not snappy like tech sites)
-Parallax:  Gentle 0.3 speed — like looking through water
-Hover:     Blooms outward — scale 1.02, opacity increase, soft glow
-Particles: Organic, drifting — NOT sharp or electric
+Easing:    cubic-bezier(0.16, 1, 0.3, 1)   — the "breath" ease
+Duration:  800ms–1400ms for reveals (NOT snappy)
+Lerp:      0.175 per 60fps frame (Lusion-measured, see below)
 ```
 
 ---
 
-## 🌊 3D / WebGL Vision (Lusion-Inspired)
+## 🌊 3D / WebGL Architecture
 
-### TWO EXPERIENCES:
-
-**Experience A: Breathing Mist Hero** (current implementation in MistScene.tsx)
-Used on inner pages and as fallback. Soft particle mist that breathes.
-
-**Experience B: Mountain Journey** (NEW — the signature piece)
-Used on the HOME PAGE as the primary scroll experience.
-Full Lusion-style 5-act cinematic scroll journey.
-
-### Mountain Journey — 5-Act Cinematic Scroll (HOME PAGE)
+### Canvas Setup (SubmersionJourney)
 ```
-Technology: 2D Canvas (no Three.js needed — pure ctx)
-Container:  900vh scroll container with sticky 100vh canvas
-Hook:       useScrollProgress() → returns 0→1
-
-Act 1 (0→0.22):   SACRED GEOMETRY WARP TUNNEL
-  - Meditator back-facing, small at center
-  - Sacred geometry rings (hex/oct) fly toward camera with sage/teal emissions
-  - Floating spore particles, central glow, chromatic aberration
-  - Chapter: "Somewhere beyond thought…"
-
-Act 2 (0.22→0.40): MANDALA VORTEX
-  - Rings compress into radiating beam mandala
-  - 24 beams + 200 spinning petal particles
-  - Dark void center with bright sage rim
-  - Chapter: "The breath finds you."
-
-Act 3 (0.40→0.55): GOLDEN CHAKRA BLOOM
-  - Color shift: sage → warm amber/gold
-  - 40 golden light rays + 60 orbiting orbs
-  - Pulsing golden core — emotional peak
-  - Chapter: "Be still."
-
-Act 4 (0.55→0.72): MOUNTAIN ARRIVAL
-  - Flash transition to physical world
-  - Layered mountain ranges + starfield + aurora
-  - 200 snow particles with wind drift
-  - Meditator seated on summit, breathing, aura glow
-  - Chapter: "A light in the dark."
-
-Act 5 (0.72→1.0):  THE TURN + CANDLE + SMOKE PORTAL
-  - Figure rotates 180° to face user (ctx.scale Y-rotation trick)
-  - Face reveals: closed eyes, soft smile, third eye bindi
-  - Candle ignites between palms at ~0.70 progress
-  - Warm amber light spreads across mountain (cold→warm shift)
-  - Smoke rises from flame, curves into vortex → white portal
-  - Portal fills screen → transitions to content below
-  - Chapter: "Follow the smoke."
+Camera:  fov=55, near=0.1, far=2000, position=[0,1.8,6]
+Fog:     Act 0 — FogExp2(0x0d0f0e, 0.012), Act 1+ — FogExp2(0x020b0e, 0.035)
+Water:   PlaneGeometry(5000,5000), y=-1.8, sunDirection=(-0.4,0.08,-0.9), waterColor=0x0a1214
+Stars:   3-layer system (BrightStars 2000 / FieldStars 8000 / MilkyWay 15000)
+Streaks: WarpStreaks canvas2D overlay, active during A4+A5
 ```
 
-### Key Files for Mountain Journey
-```
-src/components/3d/MountainJourney.tsx  — Main canvas renderer (all 5 acts)
-src/components/3d/JourneyChapters.tsx  — DOM chapter text overlays (Framer Motion)
-src/components/ui/ScrollPath.tsx       — SVG path that draws itself on scroll
-src/hooks/useScrollProgress.ts         — 0→1 scroll progress for sticky containers
-inspiration/LUSION_VISUAL_ANALYSIS.md  — Frame-by-frame analysis of actual Lusion site
-```
-
-### Breathing Mist (INNER PAGES)
-```
-Technology: Three.js + React Three Fiber
-File:       src/components/3d/MistScene.tsx (already built)
-Usage:      /about, /services, /contact hero backgrounds
-```
-
-### Organic Particle Field (About section)
-```
-Instead of Lusion's star field → a particle field that forms the shape
-of a person in a yoga pose. Particles drift and reform on scroll.
-
-Using: Three.js BufferGeometry, custom vertex positions,
-       lerp-based particle morphing between states
-Colors: sage greens, warm creams — NOT neon
-```
-
-### Card Bloom Effect (Services)
-```
-Each service card:
-- Starts slightly below, rotated away, reduced opacity
-- On scroll reveal: rotates up, blooms forward, opacity fades in
-- On hover: subtle 3D tilt (much softer than Shaw — max 5deg not 9deg)
-- Background: organic gradient using sage/sand, NOT flat dark
-```
-
-### Water Cursor
-```
-Instead of Shaw's dot-ring cursor:
-- A soft bloom — 20px circle, sage green, very low opacity (0.3)
-- Leaves a trailing "ripple" that fades out over 600ms
-- On hover of CTAs: cursor swells to 40px, warm gold color
-- Completely custom, no browser cursor
-```
+### Key Rules for 3D Work
+- `camera.far` must be ≥ water plane size. Water is 5000×5000 → `far: 2000` minimum.
+- `AdditiveBlending` + `depthWrite: false` for all star/particle layers.
+- `Stars` from drei is REMOVED — use `<StarField>` component.
+- `DepthParticles` is REMOVED (sparkles around character, user hated it).
+- `HorizonGradient` cylinder uses `THREE.BackSide` + custom ShaderMaterial.
 
 ---
 
-## 📱 Pages
+## 🎡 Virtual Scroll System (Lusion-Style) — NEXT MAJOR SPRINT
 
-### Page Structure
-```
-/ Home
-/about
-/services
-  /services/yoga         (1:1 sessions, group, corporate)
-  /services/breathwork   (breathwork coaching)
-  /services/retreats     (wellness retreats)
-/testimonials
-/blog                    (optional — Phase 2)
-/contact
-/book                    (booking page — links to scheduling tool)
+We reverse-engineered Lusion's scroll at the byte level. See full analysis:
+`/Users/sineshawmesfintesfaye/Downloads/curtana-workspace/inspiration/LUSION_SCROLL_ANALYSIS.md`
+
+### The Algorithm (confirmed from live measurement)
+```js
+// Input: wheel deltaY → target (1:1 pixel mapping confirmed)
+// Loop: lerp current toward target every RAF
+// Output: translate3d(0px, -currentScroll, 0px) on #page-container
+
+const LERP = 0.175  // confirmed: remaining × 0.67 per 30fps frame → 0.175 at 60fps
+scrollCurrent += (scrollTarget - scrollCurrent) * LERP
+pageContainer.style.transform = `translate3d(0px, ${-scrollCurrent}px, 0px)`
 ```
 
-### Home Page Sections
+### Required Setup
+```css
+/* globals.css — add these */
+html, body { overflow: hidden; }
 ```
-1. Hero          — Full-screen mist scene, name, tagline, one CTA
-2. About teaser  — Brief 2-sentence bio with link to /about
-3. Services      — 3 featured service cards
-4. Testimonials  — 2-3 rotating testimonials
-5. Instagram     — Live feed or static grid (Phase 2)
-6. CTA strip     — "Ready to flow?" → /book
-7. Footer
+```js
+// layout.tsx — add this
+const setVH = () => document.documentElement.style.setProperty('--vh', `${window.innerHeight/100}px`)
+window.addEventListener('resize', setVH); setVH()
 ```
+
+### Hook Location
+Build: `src/hooks/useVirtualScroll.ts` — see LUSION_SCROLL_ANALYSIS.md for full recipe.
 
 ---
 
-## 💬 Voice & Copy Direction
+## 📱 Page Map
 
-### Tone Rules
 ```
-✓ Warm, direct, first-person
-✓ Sensory language — feel, breathe, move, soften, open, ground
-✓ Short sentences. Let them breathe.
-✓ "You" focused — about the client's experience, not Curtana's credentials
-✗ No buzzwords: "holistic journey", "transformative experience", "wellness warrior"
-✗ No clinical language: "optimize", "maximize", "performance"
-✗ No corporate speak
+/          Home — SubmersionJourney (800vh) + AuraStage (500vh) + CTA strip
+/about     About — MistScene bg, bio, philosophy, photo
+/services  Services — all offerings, pricing (if any), booking CTA
+/book      Book — Calendly embed or Acuity Scheduling
+/contact   Contact — EmailJS form
 ```
 
-### Sample Hero Copy (placeholder — replace with Curtana's real voice)
-```
-hero name:    Flow With Curtana
-tagline:      Move with intention.
-              Breathe with purpose.
-              Come home to yourself.
-cta:          Begin your practice →
-```
-
-### Sample Service Names
-```
-1:1 Sessions  →  "Private Flow"
-Group Classes →  "Collective Breath"
-Retreats      →  "Return to Stillness"
-Breathwork    →  "The Breath Work"
-Corporate     →  "Workplace Wellness"
+### Inner Page Template Pattern
+```tsx
+// Every inner page uses:
+// 1. MistScene (Three.js) as a fixed background hero
+// 2. Glass-card content sections with blur/border
+// 3. ScrollReveal for all body copy
+// 4. WaterCursor always active
 ```
 
 ---
@@ -274,59 +170,77 @@ Corporate     →  "Workplace Wellness"
 ## ⚙️ Technical Stack
 
 ```
-Framework:    Next.js 14+ (App Router)
-Language:     TypeScript
-Styling:      Tailwind CSS + CSS modules for complex animations
-3D:           Three.js / React Three Fiber (@react-three/fiber + @react-three/drei)
-Animation:    Framer Motion (page transitions, reveals)
-Fonts:        next/font — Cormorant Garamond + DM Sans
-Booking:      Calendly embed or Acuity Scheduling
-Forms:        React Hook Form + EmailJS
-Deploy:       Vercel
-CMS:          Sanity.io (Phase 2 — for blog + testimonials)
-```
-
-### Key npm packages
-```bash
-npm install three @react-three/fiber @react-three/drei
-npm install framer-motion
-npm install @fontsource/cormorant-garamond @fontsource/dm-sans
-npm install react-hook-form
-npm install clsx tailwind-merge
+Framework:  Next.js 14+ App Router
+Language:   TypeScript
+Styling:    Tailwind CSS + CSS vars (globals.css)
+3D:         Three.js + React Three Fiber + Drei
+Animation:  Framer Motion (DOM), Three.js RAF (3D)
+Fonts:      @fontsource/cormorant-garamond + @fontsource/dm-sans
+Booking:    Calendly embed (Sprint 3)
+Forms:      EmailJS (Sprint 3)
+Deploy:     Vercel
+Repo:       GitHub private (pushed)
 ```
 
 ---
 
 ## 🧠 Claude Code Working Rules
 
-1. **Wellness first, tech second** — every decision serves the feeling of calm, movement, breath
-2. **Check DESIGN_SYSTEM.md before any CSS** — use the tokens, no improvised colors
-3. **Soft over sharp** — when in doubt, make it softer, slower, warmer
-4. **Mobile is primary** — Curtana's audience comes from Instagram (mobile first)
-5. **Performance matters** — 3D scenes must be lazy loaded, not blocking
-6. **CLAUDE.md is truth** — never use placeholder copy, use the content from CONTENT.md
-7. **Accessibility** — wellness audience includes people with sensory sensitivities — always respect `prefers-reduced-motion`
-8. **Never use generic wellness stock imagery** — flag when real photos needed
+### Absolute Rules (never break these)
+1. **SubmersionJourney is the home page hero** — never import MountainJourney on `/`
+2. **No sparkles/DepthParticles** — removed by user request, do not re-add
+3. **Stars = `<StarField>` component** — never use drei `<Stars>` on home page
+4. **Colors from CSS vars only** — never hardcode hex that duplicates a CSS variable
+5. **`camera.far ≥ 2000`** on any scene with WaterPlane (5000×5000 geometry)
+6. **`width: '100%', height: '100%'`** required on canvas overlays alongside `inset: 0`
+7. **`useActProgress` hook** is the source of truth for act-based animations
+8. **Do not touch `page.tsx` import** — `SubmersionJourney` not `MountainJourney`
+
+### Style Rules
+9. Easing is always `cubic-bezier(0.16, 1, 0.3, 1)` — never `ease-in-out`
+10. Durations 800ms–1400ms for reveals. Never under 600ms for major transitions.
+11. Glass cards: `rgba(13,15,14,0.65)` bg + `blur(20px)` + sage border `0.12`
+12. Headings: Cormorant Garamond, italic, weight 300-400
+13. Body text: DM Sans 300, line-height 1.85
+
+### Architecture Rules
+14. All 3D components are dynamically imported with `ssr: false`
+15. Inner pages use `<MistScene>` not `<SubmersionJourney>`
+16. `useScrollProgress` for sticky-container scroll (existing)
+17. `useVirtualScroll` (to-be-built) for the global Lusion-style scroll takeover
+18. `prefers-reduced-motion` must be respected everywhere
 
 ---
 
-## 📐 Key Design Decisions
+## 🛠 Skills Arsenal (596 globally installed at `~/.claude/skills/`)
 
-| Decision | Choice | Why |
-|----------|--------|-----|
-| Dark background | Yes (#0d0f0e forest dark) | Intimate, premium, NOT clinical white |
-| Particle style | Organic drifting, sage/cream | Matches breath/nature metaphor |
-| Card style | Soft blur-glass, very subtle | Not sharp tech cards |
-| Font | Cormorant Garamond serif | Feminine, authoritative, timeless |
-| Scroll speed | Slow, breath-paced | Mirrors the calming intention |
-| Cursor | Soft bloom + ripple trail | Poetic, not tech cursor |
-| Booking CTA | Warm, welcoming | "Begin" not "Sign Up" |
+Invoke with `/skill-name` in any session. Quick reference for this project:
+
+| What you're doing | Skill to use |
+|---|---|
+| Building React/Next.js features | `/jeffallan-react-expert` `/jeffallan-nextjs-developer` `/jeffallan-typescript-pro` |
+| Debugging visual/3D issues | `/jeffallan-debugging-wizard` |
+| Canvas 2D / shader work | `/anthropics-canvas-design` |
+| UI design decisions | `/anthropics-frontend-design` `/daymade-ui-designer` |
+| Researching Three.js patterns | `/daymade-deep-research` `/glebis-deep-research` |
+| Code review before committing | `/jeffallan-code-reviewer` `/lev-ln-511-code-quality-checker` |
+| Performance profiling | `/avifenesh-perf-profiler` `/avifenesh-perf-benchmarker` |
+| Bundle / npm optimization | `/lev-ln-832-bundle-optimizer` `/lev-ln-821-npm-upgrader` |
+| E2E / Playwright tests | `/jeffallan-playwright-expert` `/anthropics-webapp-testing` |
+| Pre-launch security/code audit | `/lev-ln-620-codebase-auditor` `/lev-ln-621-security-auditor` |
+| SEO | `/alireza-ai-seo` |
+| Dead code removal | `/qdhenry-remove-dead-code` `/avifenesh-deslop` |
+| Keeping docs current | `/avifenesh-sync-docs` `/lev-ln-110-project-docs-coordinator` |
+| Animation patterns | `/qdhenry-gsap-animation` |
+| TDD | `/glebis-tdd` `/jeffallan-test-master` |
+
+Full sprint-to-skill mapping: `../SPRINT.md` → Skills Arsenal section.
 
 ---
 
-## 🔗 Links
-
-- **Current site:** https://www.flowwithcurtana.com
-- **Instagram:** flowwithcurtana (link_in_bio source)
-- **Inspiration:** lusion.co (for interaction quality), not for visual style
-- **Design refs:** See inspiration/REFERENCES.md
+## 🔗 References
+- Lusion scroll analysis: `../inspiration/LUSION_SCROLL_ANALYSIS.md`
+- Sprint plan: `../SPRINT.md`
+- GitHub repo: (private, see .git/config)
+- Live client site: https://www.flowwithcurtana.com
+- Lusion inspiration: https://lusion.co

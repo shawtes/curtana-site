@@ -57,47 +57,92 @@ export default function LoadingScreen({ onComplete }: { onComplete: () => void }
     return () => cancelAnimationFrame(raf)
   }, [finish])
 
-  // ── Cup geometry ─────────────────────────────────────────────────────────
-  const HW_RIM  = 56   // half-width at rim
-  const HW_BASE = 30   // half-width at base
-  const H       = 78   // cup interior height
-  const RIM_Y   = -9   // rim arc top
-  const BASE_Y  = H + 7  // base bottom
+  // ── Cup geometry — realistic tea cup profile ────────────────────────────
+  // Modelled after a real ceramic tea cup: slight flare at rim, curved belly,
+  // narrow waist, small foot. All coordinates relative to rim-center (0,0).
+  const RIM_HW   = 44    // half-width at rim (lip)
+  const BELLY_HW = 48    // half-width at widest belly point
+  const FOOT_HW  = 20    // half-width at foot
+  const CUP_H    = 62    // interior depth (rim to inner base)
+  const BELLY_Y  = 28    // y where belly is widest
+  const BASE_Y   = CUP_H + 6  // outer base including foot curve
 
+  // Cup body: rim → belly curve → foot, with rounded bottom
   const cupPath = [
-    `M ${-HW_RIM} 0`,
-    `Q ${-HW_RIM} ${RIM_Y} 0 ${RIM_Y}`,
-    `Q ${HW_RIM} ${RIM_Y} ${HW_RIM} 0`,
-    `L ${HW_BASE} ${H}`,
-    `Q ${HW_BASE} ${BASE_Y} 0 ${BASE_Y}`,
-    `Q ${-HW_BASE} ${BASE_Y} ${-HW_BASE} ${H}`,
-    'Z',
+    // Rim (slight lip flare — rim is narrower than belly)
+    `M ${-RIM_HW} 0`,
+    // Left wall: flares out to belly, then tapers to foot
+    `C ${-RIM_HW - 2} ${BELLY_Y * 0.4}, ${-BELLY_HW} ${BELLY_Y * 0.7}, ${-BELLY_HW} ${BELLY_Y}`,
+    `C ${-BELLY_HW} ${BELLY_Y + 18}, ${-FOOT_HW - 12} ${CUP_H - 6}, ${-FOOT_HW} ${CUP_H}`,
+    // Rounded bottom
+    `Q ${-FOOT_HW} ${BASE_Y}, 0 ${BASE_Y}`,
+    `Q ${FOOT_HW} ${BASE_Y}, ${FOOT_HW} ${CUP_H}`,
+    // Right wall back up
+    `C ${FOOT_HW + 12} ${CUP_H - 6}, ${BELLY_HW} ${BELLY_Y + 18}, ${BELLY_HW} ${BELLY_Y}`,
+    `C ${BELLY_HW} ${BELLY_Y * 0.7}, ${RIM_HW + 2} ${BELLY_Y * 0.4}, ${RIM_HW} 0`,
   ].join(' ')
 
-  const handleR = `M ${HW_RIM - 5} 16 Q ${HW_RIM + 28} 22 ${HW_RIM + 28} 48 Q ${HW_RIM + 28} 72 ${HW_BASE + 6} 70`
-  const handleL = `M ${-(HW_RIM - 5)} 16 Q ${-(HW_RIM + 28)} 22 ${-(HW_RIM + 28)} 48 Q ${-(HW_RIM + 28)} 72 ${-(HW_BASE + 6)} 70`
+  // Rim ellipse (top opening — visible oval)
+  const rimPath = `M ${-RIM_HW} 0 Q ${-RIM_HW} -7, 0 -7 Q ${RIM_HW} -7, ${RIM_HW} 0 Q ${RIM_HW} 4, 0 4 Q ${-RIM_HW} 4, ${-RIM_HW} 0`
 
-  // Right cup: H = empty, 0 = full
-  const WL   = H * (1 - progress)
-  const hw   = HW_RIM - (HW_RIM - HW_BASE) * (WL / H)
+  // Small foot ring at base
+  const footPath = `M ${-FOOT_HW - 3} ${CUP_H + 2} Q ${-FOOT_HW - 3} ${BASE_Y + 2}, 0 ${BASE_Y + 2} Q ${FOOT_HW + 3} ${BASE_Y + 2}, ${FOOT_HW + 3} ${CUP_H + 2}`
+
+  // Handle — ear-shaped, right side (for right cup)
+  const handleR = [
+    `M ${RIM_HW - 4} 10`,
+    `C ${RIM_HW + 22} 6, ${RIM_HW + 30} 20, ${RIM_HW + 30} 32`,
+    `C ${RIM_HW + 30} 46, ${RIM_HW + 18} 54, ${BELLY_HW - 2} 50`,
+  ].join(' ')
+
+  // Handle — left side (for left/pouring cup)
+  const handleL = [
+    `M ${-(RIM_HW - 4)} 10`,
+    `C ${-(RIM_HW + 22)} 6, ${-(RIM_HW + 30)} 20, ${-(RIM_HW + 30)} 32`,
+    `C ${-(RIM_HW + 30)} 46, ${-(RIM_HW + 18)} 54, ${-(BELLY_HW - 2)} 50`,
+  ].join(' ')
+
+  // ── Water fill calculation ──────────────────────────────────────────────
+  // Compute the cup width at a given y using the belly curve profile
+  function cupHalfWidthAt(y: number): number {
+    if (y <= 0) return RIM_HW
+    if (y >= CUP_H) return FOOT_HW
+    if (y <= BELLY_Y) {
+      // Rim → belly: slight outward bulge
+      const t = y / BELLY_Y
+      return RIM_HW + (BELLY_HW - RIM_HW) * Math.sin(t * Math.PI * 0.5)
+    }
+    // Belly → foot: taper inward
+    const t = (y - BELLY_Y) / (CUP_H - BELLY_Y)
+    return BELLY_HW + (FOOT_HW - BELLY_HW) * t * t
+  }
+
+  // Right cup: fills from bottom up (WL = water line y, 0 = full, CUP_H = empty)
+  const WL   = CUP_H * (1 - progress)
+  const wlHW = cupHalfWidthAt(WL)
 
   const rightWaterPath = progress > 0.01 ? [
-    `M ${-hw + 1} ${WL}`,
-    `L ${-HW_BASE + 2} ${H - 1}`,
-    `Q 0 ${BASE_Y - 1} ${HW_BASE - 2} ${H - 1}`,
-    `L ${hw - 1} ${WL}`,
+    `M ${-wlHW + 1} ${WL}`,
+    // Follow left wall down to base
+    `C ${-cupHalfWidthAt(WL + (CUP_H - WL) * 0.5) - 1} ${WL + (CUP_H - WL) * 0.5}, ${-FOOT_HW - 2} ${CUP_H - 4}, ${-FOOT_HW} ${CUP_H}`,
+    // Rounded bottom
+    `Q ${-FOOT_HW} ${BASE_Y - 1}, 0 ${BASE_Y - 1}`,
+    `Q ${FOOT_HW} ${BASE_Y - 1}, ${FOOT_HW} ${CUP_H}`,
+    // Follow right wall back up
+    `C ${FOOT_HW + 2} ${CUP_H - 4}, ${cupHalfWidthAt(WL + (CUP_H - WL) * 0.5) + 1} ${WL + (CUP_H - WL) * 0.5}, ${wlHW - 1} ${WL}`,
     'Z',
   ].join(' ') : ''
 
-  // Left cup: empties as progress increases (0 = full, 1 = empty)
-  const LWL  = H * progress
-  const lhw  = HW_RIM - (HW_RIM - HW_BASE) * (LWL / H)
+  // Left cup: empties as progress increases (LWL goes from 0 → CUP_H)
+  const LWL   = CUP_H * progress
+  const lwlHW = cupHalfWidthAt(LWL)
 
-  const leftWaterPath = LWL < H - 1 ? [
-    `M ${-lhw + 1} ${LWL}`,
-    `L ${-HW_BASE + 2} ${H - 1}`,
-    `Q 0 ${BASE_Y - 1} ${HW_BASE - 2} ${H - 1}`,
-    `L ${lhw - 1} ${LWL}`,
+  const leftWaterPath = LWL < CUP_H - 1 ? [
+    `M ${-lwlHW + 1} ${LWL}`,
+    `C ${-cupHalfWidthAt(LWL + (CUP_H - LWL) * 0.5) - 1} ${LWL + (CUP_H - LWL) * 0.5}, ${-FOOT_HW - 2} ${CUP_H - 4}, ${-FOOT_HW} ${CUP_H}`,
+    `Q ${-FOOT_HW} ${BASE_Y - 1}, 0 ${BASE_Y - 1}`,
+    `Q ${FOOT_HW} ${BASE_Y - 1}, ${FOOT_HW} ${CUP_H}`,
+    `C ${FOOT_HW + 2} ${CUP_H - 4}, ${cupHalfWidthAt(LWL + (CUP_H - LWL) * 0.5) + 1} ${LWL + (CUP_H - LWL) * 0.5}, ${lwlHW - 1} ${LWL}`,
     'Z',
   ].join(' ') : ''
 
@@ -132,23 +177,24 @@ export default function LoadingScreen({ onComplete }: { onComplete: () => void }
                 style={{ textAlign: 'center' }}
               >
                 <svg
-                  viewBox="-10 -60 360 230"
+                  viewBox="-20 -50 340 210"
                   width="300"
                   style={{ display: 'block', margin: '0 auto', overflow: 'visible' }}
                 >
-                  {/* ── Left cup — elevated and tilted, emptying ── */}
-                  <g transform="translate(70, 6) rotate(-46, 0, 39)">
+                  {/* ── Left cup — tilted to pour, emptying ── */}
+                  <g transform="translate(58, 0) rotate(-32, 0, 34)">
+                    {/* Water fill */}
                     {leftWaterPath && (
-                      <path d={leftWaterPath} fill="rgba(127,168,130,0.46)" />
+                      <path d={leftWaterPath} fill="rgba(127,168,130,0.40)" />
                     )}
-                    {/* Emptying water surface shimmer */}
-                    {LWL < H - 2 && (
-                      <line
-                        x1={-lhw + 2} y1={LWL}
-                        x2={ lhw - 2} y2={LWL}
+                    {/* Water surface shimmer */}
+                    {LWL < CUP_H - 2 && (
+                      <ellipse
+                        cx={0} cy={LWL}
+                        rx={lwlHW - 3} ry={2.5}
+                        fill="none"
                         stroke="rgba(143,181,196,0.45)"
-                        strokeWidth="1"
-                        strokeLinecap="round"
+                        strokeWidth="0.8"
                       >
                         <animate
                           attributeName="opacity"
@@ -156,67 +202,108 @@ export default function LoadingScreen({ onComplete }: { onComplete: () => void }
                           dur="2s"
                           repeatCount="indefinite"
                         />
-                      </line>
+                      </ellipse>
                     )}
+                    {/* Cup body */}
                     <path
                       d={cupPath}
                       fill="none"
-                      stroke="rgba(245,240,232,0.72)"
-                      strokeWidth="1.5"
+                      stroke="rgba(245,240,232,0.68)"
+                      strokeWidth="1.4"
                       strokeLinejoin="round"
                     />
+                    {/* Rim ellipse */}
+                    <path
+                      d={rimPath}
+                      fill="rgba(245,240,232,0.04)"
+                      stroke="rgba(245,240,232,0.45)"
+                      strokeWidth="0.8"
+                    />
+                    {/* Foot ring */}
+                    <path
+                      d={footPath}
+                      fill="none"
+                      stroke="rgba(245,240,232,0.3)"
+                      strokeWidth="0.8"
+                    />
+                    {/* Handle */}
                     <path
                       d={handleL}
                       fill="none"
-                      stroke="rgba(245,240,232,0.55)"
-                      strokeWidth="1.5"
+                      stroke="rgba(245,240,232,0.50)"
+                      strokeWidth="1.4"
                       strokeLinecap="round"
-                      strokeLinejoin="round"
                     />
                   </g>
 
-                  {/* ── Water stream — arcs from elevated spout down to right cup ── */}
+                  {/* ── Water stream — natural arc from spout to right cup ── */}
                   <path
-                    d="M 90 14 C 140 -8 195 48 224 88"
+                    d="M 80 8 C 120 -16 180 30 210 78"
                     fill="none"
-                    stroke="rgba(127,168,130,0.58)"
-                    strokeWidth="2.5"
+                    stroke="rgba(127,168,130,0.55)"
+                    strokeWidth="2"
                     strokeLinecap="round"
-                    strokeDasharray="145"
+                    strokeDasharray="160"
                   >
                     <animate
                       attributeName="stroke-dashoffset"
-                      from="145" to="0"
-                      dur="1.1s"
+                      from="160" to="0"
+                      dur="1.2s"
                       repeatCount="indefinite"
                     />
                     <animate
                       attributeName="opacity"
-                      values="0.3;0.85;0.3"
-                      dur="1.1s"
+                      values="0.25;0.8;0.25"
+                      dur="1.2s"
+                      repeatCount="indefinite"
+                    />
+                  </path>
+                  {/* Secondary thin stream for depth */}
+                  <path
+                    d="M 82 10 C 118 -12 175 34 208 80"
+                    fill="none"
+                    stroke="rgba(143,181,196,0.25)"
+                    strokeWidth="1"
+                    strokeLinecap="round"
+                    strokeDasharray="155"
+                  >
+                    <animate
+                      attributeName="stroke-dashoffset"
+                      from="155" to="0"
+                      dur="1.2s"
+                      begin="0.15s"
                       repeatCount="indefinite"
                     />
                   </path>
 
-                  {/* Drop landing in right cup */}
-                  <circle cx="227" cy="94" r="2.5" fill="rgba(127,168,130,0.65)">
-                    <animate attributeName="opacity" values="0;1;0"      dur="1.1s" repeatCount="indefinite" />
-                    <animate attributeName="cy"      values="88;104;104" dur="1.1s" repeatCount="indefinite" />
+                  {/* Drop landing + ripple in right cup */}
+                  <circle cx="212" cy="84" r="2" fill="rgba(127,168,130,0.6)">
+                    <animate attributeName="opacity" values="0;1;0"      dur="1.2s" repeatCount="indefinite" />
+                    <animate attributeName="cy"      values="78;92;92"   dur="1.2s" repeatCount="indefinite" />
+                    <animate attributeName="r"       values="2;1.2;1.2" dur="1.2s" repeatCount="indefinite" />
                   </circle>
+                  {/* Ripple ring */}
+                  <ellipse cx="212" cy="92" rx="0" ry="0" fill="none"
+                    stroke="rgba(143,181,196,0.35)" strokeWidth="0.6">
+                    <animate attributeName="rx"      values="0;8;12"   dur="1.2s" repeatCount="indefinite" />
+                    <animate attributeName="ry"      values="0;2;3"    dur="1.2s" repeatCount="indefinite" />
+                    <animate attributeName="opacity"  values="0;0.4;0" dur="1.2s" repeatCount="indefinite" />
+                  </ellipse>
 
                   {/* ── Right cup (upright, filling) ── */}
-                  <g transform="translate(265, 60)">
+                  <g transform="translate(250, 52)">
+                    {/* Water fill */}
                     {rightWaterPath && (
-                      <path d={rightWaterPath} fill="rgba(127,168,130,0.46)" />
+                      <path d={rightWaterPath} fill="rgba(127,168,130,0.40)" />
                     )}
                     {/* Water surface shimmer */}
                     {progress > 0.02 && (
-                      <line
-                        x1={-hw + 2} y1={WL}
-                        x2={ hw - 2} y2={WL}
+                      <ellipse
+                        cx={0} cy={WL}
+                        rx={wlHW - 3} ry={2.5}
+                        fill="none"
                         stroke="rgba(143,181,196,0.48)"
-                        strokeWidth="1"
-                        strokeLinecap="round"
+                        strokeWidth="0.8"
                       >
                         <animate
                           attributeName="opacity"
@@ -224,22 +311,37 @@ export default function LoadingScreen({ onComplete }: { onComplete: () => void }
                           dur="2.2s"
                           repeatCount="indefinite"
                         />
-                      </line>
+                      </ellipse>
                     )}
+                    {/* Cup body */}
                     <path
                       d={cupPath}
                       fill="none"
-                      stroke="rgba(245,240,232,0.72)"
-                      strokeWidth="1.5"
+                      stroke="rgba(245,240,232,0.68)"
+                      strokeWidth="1.4"
                       strokeLinejoin="round"
                     />
+                    {/* Rim ellipse */}
+                    <path
+                      d={rimPath}
+                      fill="rgba(245,240,232,0.04)"
+                      stroke="rgba(245,240,232,0.45)"
+                      strokeWidth="0.8"
+                    />
+                    {/* Foot ring */}
+                    <path
+                      d={footPath}
+                      fill="none"
+                      stroke="rgba(245,240,232,0.3)"
+                      strokeWidth="0.8"
+                    />
+                    {/* Handle */}
                     <path
                       d={handleR}
                       fill="none"
-                      stroke="rgba(245,240,232,0.55)"
-                      strokeWidth="1.5"
+                      stroke="rgba(245,240,232,0.50)"
+                      strokeWidth="1.4"
                       strokeLinecap="round"
-                      strokeLinejoin="round"
                     />
                   </g>
                 </svg>

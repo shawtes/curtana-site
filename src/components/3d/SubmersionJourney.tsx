@@ -639,6 +639,14 @@ export default function SubmersionJourney() {
   const virtualCurrent  = React.useRef(0)
   const journeyDone     = React.useRef(false)
 
+  // ── Auto-advance bloom after scroll releases at 0.85 ──
+  // Smoothly drives scene from 0.85 → 1.0 so White Bloom plays without scroll lock.
+  const RELEASE_THRESHOLD = 0.85
+  const [bloomOverride, setBloomOverride] = React.useState<number | null>(null)
+  const [bloomActive, setBloomActive] = React.useState(false)
+  const bloomStartRef = React.useRef<number | null>(null)
+  const BLOOM_DURATION_MS = 1500
+
   // ── Cinematic intro — plays automatically on mount ───────────────────────
   // Time-based 0→1. The moment the user scrolls, cinematicActive flips false
   // and the virtual scroll (above) takes over from wherever cinematic reached.
@@ -680,14 +688,16 @@ export default function SubmersionJourney() {
         setCinematicProgress(p)
         cinematicProgRef.current = p
 
-        if (t >= 1) {
-          // Cinematic played through to end — treat as journey complete
+        if (p >= RELEASE_THRESHOLD) {
+          // Turn complete — release scroll, auto-advance bloom visually
           journeyDone.current      = true
-          virtualTarget.current    = VIRTUAL_TOTAL
-          virtualCurrent.current   = VIRTUAL_TOTAL
-          setVirtualProgress(1)
+          virtualTarget.current    = RELEASE_THRESHOLD * VIRTUAL_TOTAL
+          virtualCurrent.current   = RELEASE_THRESHOLD * VIRTUAL_TOTAL
+          setVirtualProgress(RELEASE_THRESHOLD)
           document.body.style.overflow = ''
           cancel()
+          bloomStartRef.current = performance.now()
+          setBloomActive(true)
           const wrap = document.getElementById('submersion-wrap')
           if (wrap) {
             window.scrollTo(0, 0)
@@ -765,7 +775,7 @@ export default function SubmersionJourney() {
         const p = Math.min(1, virtualCurrent.current / VIRTUAL_TOTAL)
         setVirtualProgress(p)
 
-        if (p >= 0.995) {
+        if (p >= RELEASE_THRESHOLD) {
           journeyDone.current = true
           document.body.style.overflow = ''
           window.scrollTo(0, 0)
@@ -775,6 +785,9 @@ export default function SubmersionJourney() {
               new CustomEvent('smooth-scroll-to', { detail: { y: wrap.offsetTop + wrap.offsetHeight } })
             ), 80)
           }
+          // Start auto-advancing White Bloom visually
+          bloomStartRef.current = performance.now()
+          setBloomActive(true)
           return
         }
       }
@@ -793,10 +806,29 @@ export default function SubmersionJourney() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // sceneProgress: cinematic while playing, virtual scroll after user takes over
-  const sceneProgress = cinematicActive
-    ? cinematicProgress
-    : Math.min(virtualProgress, 0.98)
+  // ── Auto-advance bloom: once scroll releases at 0.85, animate 0.85 → 1.0 ──
+  React.useEffect(() => {
+    if (!bloomActive || bloomStartRef.current === null) return
+    let rafId = 0
+    const tick = (ts: number) => {
+      const elapsed = ts - bloomStartRef.current!
+      const t = Math.min(1, elapsed / BLOOM_DURATION_MS)
+      // Ease-out for gentle bloom
+      const eased = 1 - Math.pow(1 - t, 3)
+      setBloomOverride(RELEASE_THRESHOLD + eased * (1 - RELEASE_THRESHOLD))
+      if (t < 1) rafId = requestAnimationFrame(tick)
+    }
+    rafId = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(rafId)
+  }, [bloomActive])
+
+  // sceneProgress: cinematic while playing, virtual scroll after user takes over,
+  // bloomOverride once scroll is released at end of The Turn
+  const sceneProgress = bloomOverride !== null
+    ? bloomOverride
+    : cinematicActive
+      ? cinematicProgress
+      : Math.min(virtualProgress, 0.98)
 
   const acts = useActProgress(sceneProgress)
 
