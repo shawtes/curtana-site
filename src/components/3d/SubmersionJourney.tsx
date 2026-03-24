@@ -43,14 +43,16 @@ const BREATH_EASE: [number, number, number, number] = [0.16, 1, 0.3, 1]
 // The character follows this smooth 3D path through the entire journey.
 // Points: surface → descend → deep → turn zone → hold
 const GUIDE_POINTS = [
-  new THREE.Vector3(0,   -0.8,  0),     // 0.00 — surface, meditating
-  new THREE.Vector3(0,   -0.8,  0),     // 0.10 — hold on surface
-  new THREE.Vector3(0.2, -1.8, -0.3),   // 0.25 — begin descent
-  new THREE.Vector3(0.1, -3.2, -0.1),   // 0.40 — mid-descent, slight drift
-  new THREE.Vector3(-0.1,-4.5,  0.1),   // 0.55 — approaching deep
-  new THREE.Vector3(0,   -5.0,  0),     // 0.65 — deep position, turn starts
-  new THREE.Vector3(0,   -5.0,  0),     // 0.80 — turn completing
-  new THREE.Vector3(0,   -5.0,  0),     // 1.00 — hold, front-facing
+  new THREE.Vector3(0,    -0.8,  0),     // 0.00 — surface, meditating
+  new THREE.Vector3(0,    -0.8,  0),     // 0.12 — hold on surface
+  new THREE.Vector3(0,    -1.0,  0),     // 0.18 — just starting to sink
+  new THREE.Vector3(0.15, -1.6, -0.2),   // 0.28 — crossing water line
+  new THREE.Vector3(0.2,  -2.4, -0.3),   // 0.35 — clearly underwater
+  new THREE.Vector3(0.1,  -3.2, -0.1),   // 0.42 — mid-descent, slight drift
+  new THREE.Vector3(-0.1, -4.2,  0.1),   // 0.50 — approaching deep
+  new THREE.Vector3(0,    -5.0,  0),     // 0.60 — deep position
+  new THREE.Vector3(0,    -5.0,  0),     // 0.75 — turn zone
+  new THREE.Vector3(0,    -5.0,  0),     // 1.00 — hold, front-facing
 ]
 const GUIDE_CURVE = new THREE.CatmullRomCurve3(GUIDE_POINTS, false, 'centripetal', 0.5)
 
@@ -314,25 +316,32 @@ function PalmGlow({ act5Progress, act6Progress }: { act5Progress: number; act6Pr
 // Always stays directly behind the figure at a fixed offset.
 // Same lerp speed throughout all acts — camera and figure move as one.
 
-function CameraRig({ figureY }: { figureY: number }) {
+function CameraRig({ figureY, progress }: { figureY: number; progress: number }) {
   const { camera } = useThree()
   const curLookY   = useRef(figureY + 0.3)
 
   useFrame(() => {
-    // Fixed offset behind figure: 1.2 above, 5.0 behind (world Z+)
-    const targetX    = 0
-    const targetY    = figureY + 1.2
-    const targetZ    = 5.0
-    const targetLookY = figureY + 0.3
+    // Camera sits above and behind the figure.
+    // At surface: higher up so we see her on the water.
+    // During descent: follows her down, looking slightly below her.
+    const aboveSurface = progress < 0.20
+    const camOffsetY   = aboveSurface ? 1.8 : 1.2
+    const camZ         = aboveSurface ? 5.5 : 5.0
 
-    const LERP = 0.035
+    const targetX     = 0
+    const targetY     = figureY + camOffsetY
+    const targetZ     = camZ
+    const targetLookY = figureY + (aboveSurface ? 0.0 : 0.3)
+
+    // Faster lerp during descent so camera keeps up
+    const LERP = progress > 0.15 && progress < 0.55 ? 0.06 : 0.035
     camera.position.x += (targetX     - camera.position.x) * LERP
     camera.position.y += (targetY     - camera.position.y) * LERP
     camera.position.z += (targetZ     - camera.position.z) * LERP
     curLookY.current  += (targetLookY - curLookY.current)  * LERP
 
     camera.lookAt(0, curLookY.current, 0)
-    camera.rotation.z = 0  // no roll
+    camera.rotation.z = 0
   })
 
   return null
@@ -426,7 +435,7 @@ function Scene({ progress }: { progress: number }) {
   return (
     <>
       <SceneBackground progress={progress} a1={a1} a6={a6} />
-      <CameraRig figureY={figureY} />
+      <CameraRig figureY={figureY} progress={progress} />
       <UnderwaterFog progress={progress} a1={a1} a2={a2} a3={a3} />
 
       {/* ── Lighting ── */}
@@ -448,7 +457,7 @@ function Scene({ progress }: { progress: number }) {
           intensity={0.3 + a2 * 0.5} distance={6} decay={2} />
       )}
 
-      {/* ── Figure (wrapped in Caustics for Act 1 & 2) ── */}
+      {/* ── Figure (wrapped in Caustics when underwater) ── */}
       {(act === 1 || act === 2) ? (
         <Caustics
           intensity={0.06}
@@ -473,7 +482,7 @@ function Scene({ progress }: { progress: number }) {
         />
       )}
 
-      {/* ── BiolumiParticles — Act 1 & 2 underwater ── */}
+      {/* ── BiolumiParticles — once underwater ── */}
       {(act === 1 || act === 2) && (
         <BiolumiParticles
           opacity={act === 1 ? a1 : 1}
@@ -481,11 +490,17 @@ function Scene({ progress }: { progress: number }) {
         />
       )}
 
-      {/* ── Water surface — Act 0 only ── */}
+      {/* ── Bubbles — rise from figure during descent ── */}
+      <Bubbles visible={act >= 1 && act <= 2} figureY={figureY} />
+
+      {/* ── Water surface — visible at surface AND from below during descent ── */}
       <WaterPlane
-        visible={act === 0}
+        visible={act <= 1}
         distortion={1.8}
       />
+
+      {/* ── Surface shimmer seen from below — during and after descent ── */}
+      <SurfaceFromBelow visible={act >= 1 && progress < 0.75} />
 
     </>
   )
