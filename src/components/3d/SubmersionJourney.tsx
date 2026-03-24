@@ -126,11 +126,11 @@ function SurfaceFromBelow({ visible }: { visible: boolean }) {
     <mesh ref={meshRef} rotation={[-Math.PI / 2, 0, 0]}>
       <planeGeometry args={[40, 40]} />
       <meshStandardMaterial
-        color="#021428"
-        emissive="#0a3060"
-        emissiveIntensity={0.3}
+        color="#0a120e"
+        emissive="#1a3025"
+        emissiveIntensity={0.2}
         transparent
-        opacity={0.72}
+        opacity={0.6}
         side={THREE.BackSide}
         roughness={0.05}
         metalness={0.85}
@@ -369,10 +369,10 @@ function SceneBackground({ progress, a1, a6 }: { progress: number; a1: number; a
     if (progress < 0.25) {
       bg.copy(DARK)
     } else if (progress < 0.60) {
-      _bgColorA.set('#020508')
+      _bgColorA.set('#050806')  // dark green-black, no blue
       bg.copy(DARK).lerp(_bgColorA, a1)
     } else {
-      bg.set('#020508')
+      bg.set('#050806')
     }
   })
 
@@ -387,7 +387,7 @@ const _fogColorB = new THREE.Color()
 function UnderwaterFog({ progress, a1, a2, a3 }: { progress: number; a1: number; a2: number; a3: number }) {
   const { scene, camera } = useThree()
   const surfaceColor = useMemo(() => new THREE.Color(0x0d0f0e), [])
-  const deepColor    = useMemo(() => new THREE.Color(0x0a1f2e), [])
+  const deepColor    = useMemo(() => new THREE.Color(0x0a1a12), [])  // dark sage, no blue
   const tmpColor     = useMemo(() => new THREE.Color(), [])
 
   useFrame(() => {
@@ -757,7 +757,7 @@ export default function SubmersionJourney() {
           style={{ width: '100%', height: '100%', display: 'block' }}
           dpr={[1, 1.5]}
           camera={{ position: [0, 1.8, 6], fov: 55, near: 0.1, far: 2000 }}
-          scene={{ background: new THREE.Color('#0d0f0e') }}
+          scene={{ background: new THREE.Color('#000000') }}
           gl={{
             antialias:           false,
             powerPreference:     'high-performance',

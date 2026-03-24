@@ -79,9 +79,32 @@ const WATER_FRAG = `
     float fresnel = pow(1.0 - max(dot(viewDir, vec3(0.0, 1.0, 0.0)), 0.0), 4.0);
     col += vec3(0.015, 0.02, 0.018) * fresnel;
 
-    // Very subtle star-like sparkles
+    // ── Star reflections on water surface ──
+    // Multiple scales of sparkle to simulate reflected starlight
+    // Small bright dots that drift with the ripples
+    vec2 starUv1 = vWorldPos.xz * 1.5 + vec2(uTime * 0.02, uTime * 0.015);
+    vec2 starUv2 = vWorldPos.xz * 3.0 + vec2(-uTime * 0.01, uTime * 0.025);
+    vec2 starUv3 = vWorldPos.xz * 0.8 + vec2(uTime * 0.008, -uTime * 0.012);
+
+    // Bright star reflections (few, intense)
+    float star1 = hash(floor(starUv1 * 8.0));
+    star1 = step(0.97, star1) * (0.5 + 0.5 * sin(uTime * 2.0 + star1 * 40.0));
+
+    // Medium star reflections
+    float star2 = hash(floor(starUv2 * 12.0));
+    star2 = step(0.96, star2) * (0.3 + 0.3 * sin(uTime * 3.0 + star2 * 30.0));
+
+    // Faint scattered reflections
+    float star3 = hash(floor(starUv3 * 5.0));
+    star3 = step(0.94, star3) * 0.15;
+
+    // Warm white / sage star reflection color
+    vec3 starColor = vec3(0.6, 0.7, 0.6);  // sage-tinted white
+    col += starColor * (star1 * 0.35 + star2 * 0.2 + star3 * 0.1);
+
+    // Gentle overall sparkle shimmer
     float sparkle = noise(vWorldPos.xz * 3.0 + uTime * 0.2);
-    sparkle = pow(sparkle, 8.0) * 0.15;
+    sparkle = pow(sparkle, 8.0) * 0.1;
     col += vec3(0.04, 0.05, 0.04) * sparkle;
 
     gl_FragColor = vec4(col, 0.95);
