@@ -30,10 +30,11 @@ function buildPath(vH: number): string {
   const s = vH / 6   // segment height
 
   return [
-    // Start top-center, slightly right
-    `M 620 0`,
-    // ── sweep left (about section) ──────────────────────────────────────────
-    `C 620 ${s * 0.4},  80 ${s * 0.8},   80 ${s * 1.3}`,
+    // Start from the left wall, slightly below top
+    `M 0 ${s * 0.15}`,
+    // ── sweep right then back left (about section) ────────────────────────
+    `C 200 ${s * 0.15}, 550 ${s * 0.5},  500 ${s * 1.0}`,
+    `C 450 ${s * 1.4},  80 ${s * 1.7},   80 ${s * 1.3}`,
     `C  80 ${s * 1.7}, 420 ${s * 1.9},  500 ${s * 2.1}`,
     // ── sweep right (services 1) ─────────────────────────────────────────────
     `C 580 ${s * 2.3}, 940 ${s * 2.7},  920 ${s * 3.1}`,
