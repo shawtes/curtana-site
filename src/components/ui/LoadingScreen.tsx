@@ -162,7 +162,7 @@ export default function LoadingScreen({ onComplete }: { onComplete: () => void }
                   style={{ display: 'block', margin: '0 auto', overflow: 'visible' }}
                 >
                   {/* ── Left cup — tilted to pour, emptying ── */}
-                  <g transform="translate(62, -2) rotate(-20, 0, 28)">
+                  <g transform="translate(62, -2) rotate(20, 0, 28)">
                     {/* Water fill */}
                     {leftWaterPath && (
                       <path d={leftWaterPath} fill="rgba(127,168,130,0.40)" />
