@@ -1,1639 +1,1199 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
-
 /**
- * MountainJourney — 8-Act cinematic 2D canvas scroll experience.
+ * MountainJourney — 5-Act cinematic 2D canvas scroll experience.
  *
- *   Act 0 (0→0.10):   3D STARFIELD — depth-parallax stars, mouse reactive, meditator seated
- *   Act 1 (0.10→0.22): THE FALL — meditator tips face-first into ground, concentric ripples
- *   Act 2 (0.22→0.32): THROUGH THE WATER — caustic surface, camera dives through membrane
- *   Act 3 (0.32→0.50): HYPERSPACE GEOMETRY — 4D polytopes (tesseract, 16-cell, 24-cell)
- *   Act 4 (0.50→0.63): MANDALA VORTEX — 24 beams + 280 petal particles
- *   Act 5 (0.63→0.74): GOLDEN CHAKRA BLOOM — 56 rays + 80 orbiting orbs
- *   Act 6 (0.74→0.87): MOUNTAIN ARRIVAL — aurora, layered ranges, meditator on summit
- *   Act 7 (0.87→1.0):  TURN + CANDLE + SMOKE → white portal
+ * Act 00 (0→0.15):   THE SURFACE — still water, meditator back-facing, Milky Way sky
+ * T  00→01 (0.15→0.28): SUBMERSION — camera dives through water membrane
+ * Act 01 (0.28→0.45): THE DEEP — bioluminescent void, figure tumbles
+ * T  01→02 (0.45→0.48): VOID OPENS — particles slow, geometry wakes
+ * Act 02 (0.48→0.62): GEOMETRY AWAKENS — torus rings materialize
+ * Act 03 (0.62→0.78): FULL HYPERSPACE — warp streaks, figure is the eye of the storm
+ * T  03→04 (0.78→0.85): THE TURN — figure rotates to face camera
+ * Act 04 (0.85→0.95): THE CANDLE — flame ignites, warm light, smoke rises
+ * Act 05 (0.95→1.00): THE PORTAL — smoke spirals, white circle fills screen
+ *
+ * Architecture: 700vh sticky container, pure 2D canvas, Framer Motion DOM chapters
  */
 
-// ─────────────────────────────────────────────
-// INTERFACES
-// ─────────────────────────────────────────────
+import { useEffect, useRef, useCallback, useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { useScrollProgress } from '@/hooks/useScrollProgress'
 
-interface MountainJourneyProps { scrollProgress: number }
+// ─────────────────────────────────────────────────────────────────────────────
+// COLORS
+// ─────────────────────────────────────────────────────────────────────────────
 
-interface DepthStar {
-  x: number; y: number; z: number   // x/y normalized -0.5→0.5, z 0→1 (depth)
-  size: number; brightness: number; twinkle: number; phase: number; hue: number
+const C = {
+  bg:         '#0d0f0e',
+  sage:       '#7fa882',
+  sand:       '#c8b89a',
+  cream:      '#f5f0e8',
+  mist:       '#8fb5c4',
+  gold:       '#c9a96e',
+  underwater: '#0a1f14',
+  void_bg:    '#04080a',
 }
 
-interface TunnelRing {
-  z: number; rotation: number; sides: number; scale: number; hue: number; speed: number
-  emitters: { angle: number; brightness: number; speed: number; size: number }[]
+// ─────────────────────────────────────────────────────────────────────────────
+// TYPES
+// ─────────────────────────────────────────────────────────────────────────────
+
+interface Star        { x: number; y: number; z: number; r: number; twinkle: number; phase: number }
+interface MistP       { x: number; y: number; vx: number; vy: number; r: number; alpha: number; col: string; life: number; maxLife: number }
+interface BioP        { x: number; y: number; vx: number; vy: number; r: number; alpha: number; col: string; tumble: number; life: number; maxLife: number }
+interface SmokeP      { x: number; y: number; vx: number; vy: number; r: number; maxR: number; life: number; maxLife: number; seed: number; alpha: number; active: boolean }
+interface AuraRing    { r: number; maxR: number; alpha: number; phase: number; col: string }
+interface CursorRipple{ x: number; y: number; r: number; maxR: number; alpha: number; lerp: number }
+
+interface SceneRefs {
+  stars:       Star[]
+  mist:        MistP[]
+  bio:         BioP[]
+  smoke:       SmokeP[]
+  auraRings:   AuraRing[]
+  cursor:      CursorRipple[]
+  mouseX:      number
+  mouseY:      number
+  camX:        number
+  camY:        number
+  breathPhase: number
+  figTumbleX:  number
+  figTumbleV:  number
+  scrollVel:   number
+  lastProgress:number
+  navigated:   boolean
+  raf:         number
+  t:           number
 }
 
-interface SporeParticle {
-  x: number; y: number; z: number; size: number; hue: number; alpha: number; drift: number
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+const lerp   = (a: number, b: number, t: number) => a + (b - a) * t
+const clamp  = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
+const inv    = (v: number, lo: number, hi: number) => clamp((v - lo) / (hi - lo), 0, 1)
+const ease   = (t: number) => t < 0.5 ? 2*t*t : -1+(4-2*t)*t
+
+function hexToRgb(hex: string): [number,number,number] {
+  const v = parseInt(hex.slice(1), 16)
+  return [(v>>16)&255, (v>>8)&255, v&255]
 }
 
-interface VortexBeam { angle: number; length: number; width: number; hue: number; pulse: number }
-
-interface VortexPetal {
-  angle: number; dist: number; size: number; hue: number; brightness: number; spin: number
+function lerpColor(a: [number,number,number], b: [number,number,number], t: number): string {
+  return `rgb(${Math.round(lerp(a[0],b[0],t))},${Math.round(lerp(a[1],b[1],t))},${Math.round(lerp(a[2],b[2],t))})`
 }
 
-interface BloomRay { angle: number; len: number; width: number; speed: number; phase: number }
-interface BloomOrb { angle: number; dist: number; size: number; hue: number; orbit: number; phase: number }
-interface AuroraRibbon { y: number; amp: number; freq: number; phase: number; hue: number; width: number }
-interface StarParticle { x: number; y: number; size: number; phase: number; twinkleSpeed: number }
-interface SnowParticle { x: number; y: number; size: number; speed: number; drift: number; alpha: number; wobble: number }
+const BG_SURFACE    = hexToRgb('#0d0f0e')
+const BG_UNDERWATER = hexToRgb('#021428')
+const BG_VOID       = hexToRgb('#04080a')
+const BG_WARM       = hexToRgb('#120c04')
 
-interface SmokeParticle {
-  x: number; y: number; vx: number; vy: number; size: number; maxSize: number
-  life: number; maxLife: number; alpha: number; seed: number; active: boolean; hue: number
-}
+// ─────────────────────────────────────────────────────────────────────────────
+// INIT HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
 
-interface FlashState { active: boolean; progress: number; r: number; g: number; b: number }
+const MIST_COLORS = [C.sage, C.sage, C.sand, C.cream, C.mist]
 
-// 4D polytope data
-interface Polytope4D {
-  verts: number[][]   // [x,y,z,w] per vertex
-  edges: [number, number][]
-  hue: number
-  rotPhase: number    // time offset so polytopes rotate at different phases
-  scale: number
-}
-
-interface SceneData {
-  depthStars: DepthStar[]
-  tunnelRings: TunnelRing[]
-  spores: SporeParticle[]
-  vortexBeams: VortexBeam[]
-  vortexPetals: VortexPetal[]
-  bloomRays: BloomRay[]
-  bloomOrbs: BloomOrb[]
-  auroraRibbons: AuroraRibbon[]
-  stars: StarParticle[]
-  snow: SnowParticle[]
-  smoke: SmokeParticle[]
-  flashes: FlashState[]
-  polytopes: Polytope4D[]
-  lastAct: number
+function initStars(count: number): Star[] {
+  return Array.from({length: count}, () => ({
+    x: Math.random(), y: Math.random(),
+    z: Math.random(),
+    r: 0.3 + Math.random() * 1.4,
+    twinkle: 0.5 + Math.random() * 0.5,
+    phase: Math.random() * Math.PI * 2,
+  }))
 }
 
-// ─────────────────────────────────────────────
-// 4D MATH HELPERS
-// ─────────────────────────────────────────────
-
-function rot4XW(v: number[], a: number): number[] {
-  const [x, y, z, w] = v
-  return [x * Math.cos(a) - w * Math.sin(a), y, z, x * Math.sin(a) + w * Math.cos(a)]
-}
-function rot4YW(v: number[], a: number): number[] {
-  const [x, y, z, w] = v
-  return [x, y * Math.cos(a) - w * Math.sin(a), z, y * Math.sin(a) + w * Math.cos(a)]
-}
-function rot4ZW(v: number[], a: number): number[] {
-  const [x, y, z, w] = v
-  return [x, y, z * Math.cos(a) - w * Math.sin(a), z * Math.sin(a) + w * Math.cos(a)]
-}
-function rot4XY(v: number[], a: number): number[] {
-  const [x, y, z, w] = v
-  return [x * Math.cos(a) - y * Math.sin(a), x * Math.sin(a) + y * Math.cos(a), z, w]
-}
-function rot4YZ(v: number[], a: number): number[] {
-  const [x, y, z, w] = v
-  return [x, y * Math.cos(a) - z * Math.sin(a), y * Math.sin(a) + z * Math.cos(a), w]
+function initMist(count: number, W: number, H: number): MistP[] {
+  return Array.from({length: count}, () => ({
+    x: Math.random() * W,
+    y: H * 0.2 + Math.random() * H * 0.6,
+    vx: (Math.random() - 0.5) * 0.18,
+    vy: -(0.12 + Math.random() * 0.28),
+    r: 1 + Math.random() * 3.5,
+    alpha: 0.08 + Math.random() * 0.28,
+    col: MIST_COLORS[Math.floor(Math.random() * MIST_COLORS.length)],
+    life: Math.random() * 400,
+    maxLife: 280 + Math.random() * 320,
+  }))
 }
 
-function project4to2(v: number[], fov4: number, fov3: number): [number, number, number] {
-  // 4D → 3D perspective
-  const w4 = 2.2
-  const d4 = 1 / (w4 - v[3])
-  const x3 = v[0] * d4 * fov4
-  const y3 = v[1] * d4 * fov4
-  const z3 = v[2] * d4 * fov4
-  // 3D → 2D perspective
-  const z4 = 3
-  const d3 = 1 / (z4 - z3 * 0.3)
-  return [x3 * d3 * fov3, y3 * d3 * fov3, z3]
+function initBio(count: number, W: number, H: number): BioP[] {
+  const cols = [C.sage, C.mist, '#5dcaa5', C.sand]
+  return Array.from({length: count}, () => ({
+    x: Math.random() * W,
+    y: Math.random() * H,
+    vx: (Math.random() - 0.5) * 0.4,
+    vy: (Math.random() - 0.5) * 0.4,
+    r: 1 + Math.random() * 3,
+    alpha: 0.15 + Math.random() * 0.45,
+    col: cols[Math.floor(Math.random() * cols.length)],
+    tumble: Math.random() * Math.PI * 2,
+    life: Math.random() * 400,
+    maxLife: 280 + Math.random() * 320,
+  }))
 }
 
-function rotatePoly(v: number[], t: number, phase: number): number[] {
-  const T = t * 0.0004 + phase
-  let r = rot4XW(v, T * 0.7)
-  r = rot4YW(r, T * 0.5)
-  r = rot4ZW(r, T * 0.3)
-  r = rot4XY(r, T * 0.4)
-  r = rot4YZ(r, T * 0.2)
-  return r
+function initSmoke(count: number): SmokeP[] {
+  return Array.from({length: count}, () => ({
+    x: 0, y: 0, vx: 0, vy: 0,
+    r: 1, maxR: 4 + Math.random() * 3,
+    life: 0, maxLife: 60 + Math.random() * 80,
+    seed: Math.random() * 100,
+    alpha: 0, active: false,
+  }))
 }
 
-// Build tesseract: 16 verts, 32 edges
-function buildTesseract(): Polytope4D {
-  const verts: number[][] = []
-  for (let i = 0; i < 16; i++) {
-    verts.push([
-      (i & 1) ? 1 : -1,
-      (i & 2) ? 1 : -1,
-      (i & 4) ? 1 : -1,
-      (i & 8) ? 1 : -1,
-    ])
-  }
-  const edges: [number, number][] = []
-  for (let a = 0; a < 16; a++) {
-    for (let b = a + 1; b < 16; b++) {
-      const diff = a ^ b
-      if (diff > 0 && (diff & (diff - 1)) === 0) edges.push([a, b])
-    }
-  }
-  return { verts, edges, hue: 160, rotPhase: 0, scale: 1.0 }
+function initAuraRings(): AuraRing[] {
+  const cols = [C.sage, C.sand, C.mist, C.cream]
+  return Array.from({length: 4}, (_, i) => ({
+    r: 55, maxR: 110 + i * 15,
+    alpha: 0,
+    phase: i * 0.9,
+    col: cols[i],
+  }))
 }
 
-// Build 16-cell (cross-polytope): 8 verts, 24 edges
-function build16Cell(): Polytope4D {
-  const verts: number[][] = [
-    [1,0,0,0],[-1,0,0,0],[0,1,0,0],[0,-1,0,0],
-    [0,0,1,0],[0,0,-1,0],[0,0,0,1],[0,0,0,-1],
+function initCursorRipples(): CursorRipple[] {
+  return [
+    { x: 0, y: 0, r: 0, maxR: 0, alpha: 0, lerp: 0.08 },
+    { x: 0, y: 0, r: 0, maxR: 0, alpha: 0, lerp: 0.06 },
+    { x: 0, y: 0, r: 0, maxR: 0, alpha: 0, lerp: 0.04 },
   ]
-  const edges: [number, number][] = []
-  for (let a = 0; a < 8; a++) {
-    for (let b = a + 1; b < 8; b++) {
-      // Connect all non-antipodal pairs
-      if (a !== b - 1 || b % 2 === 0) {
-        // antipodal = (0,1), (2,3), (4,5), (6,7)
-        const antipodal = (b === a + 1 && a % 2 === 0)
-        if (!antipodal) edges.push([a, b])
-      }
-    }
-  }
-  return { verts, edges, hue: 200, rotPhase: Math.PI * 0.7, scale: 1.4 }
 }
 
-// Build 24-cell: 24 verts (permutations of (±1,±1,0,0))
-function build24Cell(): Polytope4D {
-  const verts: number[][] = []
-  const coords = [0, 1, 2, 3]
-  for (let i = 0; i < 4; i++) {
-    for (let j = i + 1; j < 4; j++) {
-      for (const si of [1, -1]) {
-        for (const sj of [1, -1]) {
-          const v = [0, 0, 0, 0]
-          v[i] = si; v[j] = sj
-          verts.push(v)
-        }
-      }
+// ─────────────────────────────────────────────────────────────────────────────
+// DRAW — STARFIELD
+// ─────────────────────────────────────────────────────────────────────────────
+
+function drawStarfield(ctx: CanvasRenderingContext2D, W: number, H: number,
+  stars: Star[], t: number, camX: number, camY: number, alpha: number) {
+  if (alpha <= 0) return
+  ctx.save()
+  ctx.globalAlpha = alpha
+  for (const s of stars) {
+    const tw = s.twinkle * (0.6 + 0.4 * Math.sin(t * 0.8 + s.phase))
+    const brightness = 0.5 + tw * 0.5
+    const sx = (s.x * W + camX * 0.2) % W
+    const sy = (s.y * H + camY * 0.1) % H
+    ctx.beginPath()
+    ctx.arc(sx, sy, s.r, 0, Math.PI * 2)
+    ctx.fillStyle = `rgba(${Math.round(220+brightness*35)},${Math.round(220+brightness*35)},${Math.round(230+brightness*25)},${brightness * 0.9})`
+    ctx.fill()
+    // milky way glow for larger stars
+    if (s.r > 1.0) {
+      const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, s.r * 3)
+      g.addColorStop(0, `rgba(200,210,240,${brightness * 0.25})`)
+      g.addColorStop(1, 'transparent')
+      ctx.beginPath(); ctx.arc(sx, sy, s.r * 3, 0, Math.PI * 2)
+      ctx.fillStyle = g; ctx.fill()
     }
   }
-  // Connect vertices at distance sqrt(2)
-  const edges: [number, number][] = []
-  for (let a = 0; a < verts.length; a++) {
-    for (let b = a + 1; b < verts.length; b++) {
-      let d = 0
-      for (let k = 0; k < 4; k++) d += (verts[a][k] - verts[b][k]) ** 2
-      if (Math.abs(d - 2) < 0.01) edges.push([a, b])
-    }
-  }
-  return { verts, edges, hue: 40, rotPhase: Math.PI * 1.3, scale: 0.72 }
+  ctx.restore()
 }
 
-// ─────────────────────────────────────────────
-// INIT
-// ─────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// DRAW — WATER SURFACE
+// ─────────────────────────────────────────────────────────────────────────────
 
-function initScene(): SceneData {
-  // Depth stars for Act 0
-  const depthStars: DepthStar[] = []
-  for (let i = 0; i < 1200; i++) {
-    depthStars.push({
-      x: (Math.random() - 0.5),
-      y: (Math.random() - 0.5),
-      z: 0.05 + Math.random() * 0.95,
-      size: 0.3 + Math.random() * 1.8,
-      brightness: 0.4 + Math.random() * 0.6,
-      twinkle: 0.5 + Math.random() * 2.5,
-      phase: Math.random() * Math.PI * 2,
-      hue: Math.random() < 0.15 ? 200 + Math.random() * 40 : (Math.random() < 0.1 ? 30 + Math.random() * 20 : 0),
-    })
+function drawWater(ctx: CanvasRenderingContext2D, W: number, H: number,
+  t: number, waterY: number, alpha: number) {
+  if (alpha <= 0) return
+  ctx.save()
+  ctx.globalAlpha = alpha
+  // water body
+  const wg = ctx.createLinearGradient(0, waterY, 0, H)
+  wg.addColorStop(0, 'rgba(2,20,40,0.95)')
+  wg.addColorStop(1, 'rgba(1,10,22,1)')
+  ctx.fillStyle = wg
+  ctx.fillRect(0, waterY, W, H - waterY)
+  // ripple lines
+  ctx.strokeStyle = 'rgba(143,181,196,0.08)'
+  ctx.lineWidth = 1
+  for (let i = 0; i < 6; i++) {
+    const wy = waterY + i * 18 + Math.sin(t * 0.4 + i) * 4
+    ctx.beginPath(); ctx.moveTo(0, wy); ctx.lineTo(W, wy); ctx.stroke()
+  }
+  ctx.restore()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DRAW — FIGURE (BACK)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function drawFigureBack(ctx: CanvasRenderingContext2D, x: number, y: number,
+  scale: number, breathPhase: number, alpha: number) {
+  if (alpha <= 0) return
+  const breath = Math.sin(breathPhase) * 0.012
+  ctx.save()
+  ctx.globalAlpha = alpha
+  ctx.translate(x, y)
+  ctx.scale(scale * (1 + breath), scale * (1 + breath * 0.5))
+
+  // lotus legs — two curved wings
+  ctx.beginPath()
+  ctx.ellipse(0, 28, 38, 14, 0, 0, Math.PI * 2)
+  ctx.fillStyle = 'rgba(30,30,28,0.92)'
+  ctx.fill()
+  // body torso
+  ctx.beginPath()
+  ctx.ellipse(0, 0, 14, 22, 0, 0, Math.PI * 2)
+  ctx.fillStyle = '#1a1d1b'
+  ctx.fill()
+  // head
+  ctx.beginPath()
+  ctx.arc(0, -28, 13, 0, Math.PI * 2)
+  ctx.fillStyle = '#1a1d1b'
+  ctx.fill()
+  // arms
+  ctx.strokeStyle = '#1a1d1b'; ctx.lineWidth = 5; ctx.lineCap = 'round'
+  ctx.beginPath(); ctx.moveTo(-10, 4); ctx.quadraticCurveTo(-26, 18, -20, 28); ctx.stroke()
+  ctx.beginPath(); ctx.moveTo(10, 4); ctx.quadraticCurveTo(26, 18, 20, 28); ctx.stroke()
+  // spine glow
+  const sg = ctx.createLinearGradient(0, -26, 0, 26)
+  sg.addColorStop(0, 'rgba(127,168,130,0.0)')
+  sg.addColorStop(0.5, 'rgba(127,168,130,0.08)')
+  sg.addColorStop(1, 'rgba(127,168,130,0.0)')
+  ctx.beginPath(); ctx.rect(-2, -26, 4, 52); ctx.fillStyle = sg; ctx.fill()
+
+  ctx.restore()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DRAW — FIGURE (FRONT)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function drawFigureFront(ctx: CanvasRenderingContext2D, x: number, y: number,
+  scale: number, breathPhase: number, alpha: number, candleAlpha: number) {
+  if (alpha <= 0) return
+  const breath = Math.sin(breathPhase) * 0.012
+  ctx.save()
+  ctx.globalAlpha = alpha
+  ctx.translate(x, y)
+  ctx.scale(scale * (1 + breath), scale * (1 + breath * 0.5))
+
+  // lotus legs
+  ctx.beginPath()
+  ctx.ellipse(0, 28, 38, 14, 0, 0, Math.PI * 2)
+  ctx.fillStyle = '#1e201d'
+  ctx.fill()
+  // torso
+  ctx.beginPath()
+  ctx.ellipse(0, 0, 14, 22, 0, 0, Math.PI * 2)
+  ctx.fillStyle = '#1e201d'
+  ctx.fill()
+  // arms
+  ctx.strokeStyle = '#1e201d'; ctx.lineWidth = 5; ctx.lineCap = 'round'
+  ctx.beginPath(); ctx.moveTo(-10, 4); ctx.quadraticCurveTo(-24, 20, -16, 30); ctx.stroke()
+  ctx.beginPath(); ctx.moveTo(10, 4); ctx.quadraticCurveTo(24, 20, 16, 30); ctx.stroke()
+  // mudra hands — cupped
+  if (candleAlpha < 0.8) {
+    ctx.beginPath(); ctx.arc(-13, 30, 5, 0, Math.PI * 2)
+    ctx.fillStyle = '#2a2b28'; ctx.fill()
+    ctx.beginPath(); ctx.arc(13, 30, 5, 0, Math.PI * 2)
+    ctx.fillStyle = '#2a2b28'; ctx.fill()
+  } else {
+    // hands raised and cupped for candle
+    const liftY = (candleAlpha - 0.8) / 0.2 * 18
+    ctx.beginPath(); ctx.arc(-10, 30 - liftY, 5, 0, Math.PI * 2)
+    ctx.fillStyle = '#2a2b28'; ctx.fill()
+    ctx.beginPath(); ctx.arc(10, 30 - liftY, 5, 0, Math.PI * 2)
+    ctx.fillStyle = '#2a2b28'; ctx.fill()
+  }
+  // head
+  ctx.beginPath(); ctx.arc(0, -28, 13, 0, Math.PI * 2)
+  ctx.fillStyle = '#1e201d'; ctx.fill()
+  // face — closed eyes
+  ctx.strokeStyle = 'rgba(200,190,170,0.5)'; ctx.lineWidth = 1.5; ctx.lineCap = 'round'
+  ctx.beginPath(); ctx.moveTo(-5, -29); ctx.quadraticCurveTo(-3, -31, -1, -29); ctx.stroke()
+  ctx.beginPath(); ctx.moveTo(5, -29); ctx.quadraticCurveTo(3, -31, 1, -29); ctx.stroke()
+  // bindi (third eye)
+  const bindiBright = 0.5 + 0.5 * Math.sin(breathPhase * 1.1)
+  ctx.beginPath(); ctx.arc(0, -34, 2.5 + bindiBright, 0, Math.PI * 2)
+  const bg = ctx.createRadialGradient(0, -34, 0, 0, -34, 4)
+  bg.addColorStop(0, `rgba(201,169,110,${0.8 + bindiBright * 0.2})`)
+  bg.addColorStop(1, 'transparent')
+  ctx.fillStyle = bg; ctx.fill()
+  // candlelight face glow
+  if (candleAlpha > 0) {
+    const fg = ctx.createRadialGradient(0, 10, 0, 0, 10, 60)
+    fg.addColorStop(0, `rgba(255,180,60,${candleAlpha * 0.18})`)
+    fg.addColorStop(1, 'transparent')
+    ctx.beginPath(); ctx.arc(0, 10, 60, 0, Math.PI * 2)
+    ctx.fillStyle = fg; ctx.fill()
   }
 
-  const tunnelRings: TunnelRing[] = []
-  for (let i = 0; i < 36; i++) {
-    const emitters = []
-    for (let j = 0; j < 10; j++) {
-      emitters.push({
-        angle: (j / 10) * Math.PI * 2 + Math.random() * 0.2,
-        brightness: Math.random(), speed: 0.4 + Math.random() * 2.0, size: 2 + Math.random() * 5,
-      })
+  ctx.restore()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DRAW — WATER REFLECTION OF FIGURE
+// ─────────────────────────────────────────────────────────────────────────────
+
+function drawReflection(ctx: CanvasRenderingContext2D, x: number, y: number,
+  waterY: number, scale: number, breathPhase: number, t: number, alpha: number) {
+  if (alpha <= 0) return
+  ctx.save()
+  ctx.globalAlpha = alpha * 0.28
+  ctx.translate(x, waterY + (waterY - y))
+  ctx.scale(scale, -scale * (1 + Math.sin(breathPhase) * 0.005))
+  // simple rippled reflection — just the silhouette
+  const wave = Math.sin(t * 0.6) * 1.5
+  ctx.translate(wave, 0)
+  ctx.beginPath()
+  ctx.ellipse(0, 28, 38, 14, 0, 0, Math.PI * 2)
+  ctx.ellipse(0, 0, 14, 22, 0, 0, Math.PI * 2)
+  ctx.arc(0, -28, 13, 0, Math.PI * 2)
+  ctx.fillStyle = '#7fa882'
+  ctx.fill()
+  ctx.restore()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DRAW — AURA RINGS
+// ─────────────────────────────────────────────────────────────────────────────
+
+function updateAndDrawAuraRings(ctx: CanvasRenderingContext2D, rings: AuraRing[],
+  x: number, y: number, t: number, visible: boolean) {
+  if (!visible) return
+  for (const ring of rings) {
+    ring.r += 0.6
+    if (ring.r > ring.maxR) { ring.r = 55; ring.alpha = 0.35 }
+    ring.alpha *= 0.994
+    if (ring.alpha < 0.02) { ring.r = 55; ring.alpha = 0.35 }
+    const progress = (ring.r - 55) / (ring.maxR - 55)
+    const a = ring.alpha * (1 - progress * 0.7)
+    const hex = ring.col.replace('#','')
+    const rv = parseInt(hex.slice(0,2),16), gv = parseInt(hex.slice(2,4),16), bv = parseInt(hex.slice(4,6),16)
+    ctx.save()
+    ctx.globalAlpha = a
+    ctx.strokeStyle = `rgb(${rv},${gv},${bv})`
+    ctx.lineWidth = 1.5
+    ctx.beginPath(); ctx.arc(x, y + 28, ring.r, 0, Math.PI * 2); ctx.stroke()
+    ctx.restore()
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DRAW — CHAKRA DOTS
+// ─────────────────────────────────────────────────────────────────────────────
+
+function drawChakraDots(ctx: CanvasRenderingContext2D, x: number, y: number,
+  scale: number, t: number, alpha: number) {
+  if (alpha <= 0) return
+  const CHAKRA_Y = [-26, -18, -8, 2, 10, 18, 26]
+  const CHAKRA_C = ['#c8b89a','#c9a96e','#c9a96e','#7fa882','#8fb5c4','#8fb5c4','#f5f0e8']
+  ctx.save()
+  ctx.globalAlpha = alpha
+  for (let i = 0; i < CHAKRA_Y.length; i++) {
+    const pulse = 0.3 + 0.6 * (0.5 + 0.5 * Math.sin(t * 1.1 + i * 0.7))
+    const cy = y + CHAKRA_Y[i] * scale
+    ctx.beginPath(); ctx.arc(x, cy, 2.5 * scale * pulse, 0, Math.PI * 2)
+    const g = ctx.createRadialGradient(x, cy, 0, x, cy, 5 * scale)
+    g.addColorStop(0, CHAKRA_C[i]); g.addColorStop(1, 'transparent')
+    ctx.fillStyle = g; ctx.fill()
+  }
+  ctx.restore()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DRAW — CROWN RAYS
+// ─────────────────────────────────────────────────────────────────────────────
+
+function drawCrownRays(ctx: CanvasRenderingContext2D, x: number, y: number,
+  headY: number, t: number, breathPhase: number, alpha: number) {
+  if (alpha <= 0) return
+  ctx.save()
+  ctx.globalAlpha = alpha * (0.08 + 0.12 * (0.5 + 0.5 * Math.sin(breathPhase)))
+  ctx.strokeStyle = C.cream
+  ctx.lineWidth = 1
+  for (let i = 0; i < 12; i++) {
+    const angle = (i / 12) * Math.PI * 2 - Math.PI * 0.5
+    const len = 18 + Math.sin(t * 0.7 + i * 0.5) * 6
+    ctx.beginPath()
+    ctx.moveTo(x + Math.cos(angle) * 14, headY + Math.sin(angle) * 14)
+    ctx.lineTo(x + Math.cos(angle) * (14 + len), headY + Math.sin(angle) * (14 + len))
+    ctx.stroke()
+  }
+  ctx.restore()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DRAW — MIST PARTICLES
+// ─────────────────────────────────────────────────────────────────────────────
+
+function updateAndDrawMist(ctx: CanvasRenderingContext2D, particles: (MistP | BioP)[],
+  W: number, H: number, breathPhase: number, alpha: number, bioMode: boolean) {
+  if (alpha <= 0) return
+  ctx.save()
+  const breathMod = 1 + Math.sin(breathPhase) * 0.28
+
+  for (const p of particles) {
+    p.life++
+    if (p.life > p.maxLife) {
+      p.x = Math.random() * W
+      p.y = bioMode ? Math.random() * H : H * 0.3 + Math.random() * H * 0.5
+      p.life = 0
+      p.alpha = 0.08 + Math.random() * 0.28
+      if (bioMode) {
+        p.vx = (Math.random() - 0.5) * 0.4
+        p.vy = (Math.random() - 0.5) * 0.4
+      }
     }
-    tunnelRings.push({
-      z: i * 180, rotation: Math.random() * Math.PI * 2, sides: Math.random() < 0.55 ? 6 : 8,
-      scale: 0.5 + Math.random() * 0.7, hue: 135 + Math.random() * 50,
-      speed: 0.5 + Math.random() * 1.5, emitters,
-    })
-  }
+    p.x += p.vx * breathMod + (bioMode ? Math.sin(p.life * 0.04) * 0.2 : 0)
+    p.vy += bioMode ? 0 : -0.0008
+    p.y += p.vy * breathMod
+    if (p.x < 0) p.x = W; if (p.x > W) p.x = 0
+    if (!bioMode && p.y < -10) { p.y = H * 0.8; p.x = Math.random() * W }
 
-  const spores: SporeParticle[] = []
-  for (let i = 0; i < 600; i++) {
-    spores.push({
-      x: (Math.random() - 0.5) * 2000, y: (Math.random() - 0.5) * 1400,
-      z: Math.random() * 6500, size: 0.5 + Math.random() * 2.5,
-      hue: 100 + Math.random() * 100, alpha: 0.2 + Math.random() * 0.5,
-      drift: (Math.random() - 0.5) * 0.4,
-    })
-  }
+    const prog = p.life / p.maxLife
+    const fade = prog < 0.12 ? prog / 0.12 : prog > 0.8 ? (1 - prog) / 0.2 : 1
+    ctx.globalAlpha = p.alpha * fade * alpha
+    const col = bioMode
+      ? p.col.replace('#','')
+      : p.col.replace('#','')
+    const rv = parseInt(col.slice(0,2),16), gv = parseInt(col.slice(2,4),16), bv = parseInt(col.slice(4,6),16)
 
-  const vortexBeams: VortexBeam[] = []
-  for (let i = 0; i < 24; i++) {
-    vortexBeams.push({
-      angle: (i / 24) * Math.PI * 2, length: 220 + Math.random() * 380,
-      width: 0.5 + Math.random() * 2.5, hue: 120 + Math.random() * 60,
-      pulse: Math.random() * Math.PI * 2,
-    })
+    if (bioMode) {
+      // bioluminescent glow
+      const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r * 3)
+      g.addColorStop(0, `rgba(${rv},${gv},${bv},1)`)
+      g.addColorStop(1, 'transparent')
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r * 3, 0, Math.PI * 2)
+      ctx.fillStyle = g; ctx.fill()
+    } else {
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2)
+      ctx.fillStyle = `rgb(${rv},${gv},${bv})`
+      ctx.fill()
+    }
   }
+  ctx.restore()
+}
 
-  const vortexPetals: VortexPetal[] = []
-  for (let i = 0; i < 280; i++) {
-    vortexPetals.push({
-      angle: Math.random() * Math.PI * 2, dist: 30 + Math.random() * 520,
-      size: 2 + Math.random() * 12, hue: 125 + Math.random() * 60,
-      brightness: 40 + Math.random() * 35, spin: (Math.random() - 0.5) * 0.004,
-    })
-  }
+// ─────────────────────────────────────────────────────────────────────────────
+// DRAW — CAUSTIC LIGHT (underwater)
+// ─────────────────────────────────────────────────────────────────────────────
 
-  const bloomRays: BloomRay[] = []
-  for (let i = 0; i < 56; i++) {
-    bloomRays.push({
-      angle: (i / 56) * Math.PI * 2 + Math.random() * 0.05,
-      len: 120 + Math.random() * 380, width: 0.3 + Math.random() * 4,
-      speed: 0.4 + Math.random() * 1.8, phase: Math.random() * Math.PI * 2,
-    })
-  }
-
-  const bloomOrbs: BloomOrb[] = []
-  for (let i = 0; i < 80; i++) {
-    bloomOrbs.push({
-      angle: Math.random() * Math.PI * 2, dist: 30 + Math.random() * 400,
-      size: 1.5 + Math.random() * 9, hue: 20 + Math.random() * 40,
-      orbit: 0.0005 + Math.random() * 0.003, phase: Math.random() * Math.PI * 2,
-    })
-  }
-
-  const auroraRibbons: AuroraRibbon[] = []
-  const auroraHues = [168, 175, 155, 140, 162]
-  for (let i = 0; i < 5; i++) {
-    auroraRibbons.push({
-      y: 0.12 + i * 0.06, amp: 0.04 + Math.random() * 0.05,
-      freq: 1.5 + Math.random() * 1.5, phase: Math.random() * Math.PI * 2,
-      hue: auroraHues[i], width: 0.025 + Math.random() * 0.04,
-    })
-  }
-
-  const stars: StarParticle[] = []
-  for (let i = 0; i < 280; i++) {
-    stars.push({
-      x: Math.random(), y: Math.random() * 0.62,
-      size: 0.3 + Math.random() * 1.8, phase: Math.random() * Math.PI * 2,
-      twinkleSpeed: 0.8 + Math.random() * 2.0,
-    })
-  }
-
-  const snow: SnowParticle[] = []
-  for (let i = 0; i < 260; i++) {
-    snow.push({
-      x: Math.random(), y: Math.random(), size: 0.5 + Math.random() * 2.5,
-      speed: 0.0003 + Math.random() * 0.0007, drift: (Math.random() - 0.3) * 0.0002,
-      alpha: 0.2 + Math.random() * 0.55, wobble: Math.random() * Math.PI * 2,
-    })
-  }
-
-  const smoke: SmokeParticle[] = []
-  for (let i = 0; i < 80; i++) {
-    smoke.push({
-      x: 0, y: 0, vx: 0, vy: 0, size: 1, maxSize: 6 + Math.random() * 10,
-      life: 0, maxLife: 70 + Math.random() * 90, alpha: 0, seed: Math.random() * Math.PI * 2,
-      active: false, hue: 200 + Math.random() * 40,
-    })
-  }
-
-  const flashes: FlashState[] = [
-    { active: false, progress: 0, r: 180, g: 230, b: 255 },  // Act 1→2: blue-white (ripple impact)
-    { active: false, progress: 0, r: 80,  g: 200, b: 210 },  // Act 2→3: teal emergence
-    { active: false, progress: 0, r: 200, g: 255, b: 220 },  // Act 3→4: sage-white
-    { active: false, progress: 0, r: 255, g: 210, b: 130 },  // Act 4→5: gold-white
-    { active: false, progress: 0, r: 230, g: 240, b: 255 },  // Act 5→6: cool daylight
+function drawCaustics(ctx: CanvasRenderingContext2D, W: number, H: number,
+  t: number, alpha: number) {
+  if (alpha <= 0) return
+  ctx.save()
+  const patches = [
+    { x: W * 0.3, y: H * 0.25, r: 120 },
+    { x: W * 0.7, y: H * 0.35, r: 90 },
+    { x: W * 0.5, y: H * 0.6,  r: 100 },
   ]
-
-  const polytopes: Polytope4D[] = [
-    buildTesseract(),
-    build16Cell(),
-    build24Cell(),
-  ]
-
-  return {
-    depthStars, tunnelRings, spores, vortexBeams, vortexPetals,
-    bloomRays, bloomOrbs, auroraRibbons, stars, snow, smoke,
-    flashes, polytopes, lastAct: 0,
+  for (let i = 0; i < patches.length; i++) {
+    const p = patches[i]
+    const dx = Math.sin(t * 0.15 + i * 1.3) * 40
+    const dy = Math.cos(t * 0.12 + i * 0.9) * 30
+    const g = ctx.createRadialGradient(p.x + dx, p.y + dy, 0, p.x + dx, p.y + dy, p.r)
+    g.addColorStop(0, `rgba(143,181,196,${alpha * 0.07})`)
+    g.addColorStop(1, 'transparent')
+    ctx.beginPath(); ctx.arc(p.x + dx, p.y + dy, p.r, 0, Math.PI * 2)
+    ctx.fillStyle = g; ctx.fill()
   }
+  ctx.restore()
 }
 
-// ─────────────────────────────────────────────
-// COMPONENT
-// ─────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// DRAW — TORUS RINGS (2D ellipses with tilt)
+// ─────────────────────────────────────────────────────────────────────────────
 
-export default function MountainJourney({ scrollProgress }: MountainJourneyProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null)
-  const progressRef = useRef(0)
-  const mouseRef = useRef({ x: 0.5, y: 0.5, tx: 0.5, ty: 0.5 })
-  const rafRef = useRef(0)
-  const sceneRef = useRef<SceneData | null>(null)
+function drawTorusRings(ctx: CanvasRenderingContext2D, cx: number, cy: number,
+  t: number, alpha: number) {
+  if (alpha <= 0) return
+  const rings = [
+    { rx: 160, ry: 80,  tilt: 0.3,  speed: 0.0008, col: C.sage,  lw: 2.0 },
+    { rx: 115, ry: 58,  tilt: -0.6, speed: -0.0012, col: C.sand,  lw: 1.5 },
+    { rx: 70,  ry: 35,  tilt: 0.9,  speed: 0.0018, col: C.mist,  lw: 1.2 },
+  ]
+  ctx.save()
+  ctx.globalAlpha = alpha
+  for (const ring of rings) {
+    const rot = t * ring.speed * 1000
+    ctx.save()
+    ctx.translate(cx, cy)
+    ctx.rotate(ring.tilt + rot)
+    ctx.strokeStyle = ring.col
+    ctx.lineWidth = ring.lw
+    ctx.shadowBlur = 8
+    ctx.shadowColor = ring.col
+    ctx.beginPath()
+    ctx.ellipse(0, 0, ring.rx, ring.ry, 0, 0, Math.PI * 2)
+    ctx.stroke()
+    ctx.restore()
+  }
+  ctx.restore()
+}
 
-  useEffect(() => { progressRef.current = scrollProgress }, [scrollProgress])
+// ─────────────────────────────────────────────────────────────────────────────
+// DRAW — WARP STREAKS
+// ─────────────────────────────────────────────────────────────────────────────
 
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const resize = () => {
-      canvas.width = window.innerWidth * (window.devicePixelRatio || 1)
-      canvas.height = window.innerHeight * (window.devicePixelRatio || 1)
-      canvas.style.width = '100%'
-      canvas.style.height = '100%'
+interface WarpStreak { angle: number; dist: number; speed: number; col: string; phase: number }
+let warpStreaks: WarpStreak[] = []
+
+function initWarpStreaks(count: number): WarpStreak[] {
+  const cols = [C.sage, C.sage, C.gold, C.cream, C.mist]
+  return Array.from({length: count}, () => ({
+    angle: Math.random() * Math.PI * 2,
+    dist: Math.random() * 380,
+    speed: 1.2 + Math.random() * 3.3,
+    col: cols[Math.floor(Math.random() * cols.length)],
+    phase: Math.random() * Math.PI * 2,
+  }))
+}
+
+function drawWarpStreaks(ctx: CanvasRenderingContext2D, cx: number, cy: number,
+  W: number, t: number, streakProgress: number, alpha: number, streaks: WarpStreak[]) {
+  if (alpha <= 0 || streakProgress <= 0) return
+  const len = (15 + streakProgress * 120) * alpha
+  ctx.save()
+  ctx.globalAlpha = 0.7 * alpha
+  for (const s of streaks) {
+    const angle = s.angle + t * s.speed * 0.002
+    const d = s.dist * 0.3 + s.dist * 0.7 * streakProgress
+    const x1 = cx + Math.cos(angle) * d
+    const y1 = cy + Math.sin(angle) * d * 0.55   // Y compressed for perspective oval
+    const x2 = cx + Math.cos(angle) * (d + len)
+    const y2 = cy + Math.sin(angle) * (d + len) * 0.55
+    const g = ctx.createLinearGradient(x1, y1, x2, y2)
+    g.addColorStop(0, 'transparent')
+    g.addColorStop(1, s.col)
+    ctx.strokeStyle = g
+    ctx.lineWidth = 0.8 + streakProgress * 0.6
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke()
+  }
+  ctx.restore()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DRAW — CANDLE + FLAME
+// ─────────────────────────────────────────────────────────────────────────────
+
+function drawCandle(ctx: CanvasRenderingContext2D, cx: number, cy: number,
+  alpha: number) {
+  if (alpha <= 0) return
+  ctx.save()
+  ctx.globalAlpha = alpha
+  // candle body
+  ctx.fillStyle = '#e8dfc8'
+  ctx.beginPath()
+  ctx.rect(cx - 4, cy - 12, 8, 16)
+  ctx.fill()
+  // wick
+  ctx.strokeStyle = '#3a2810'; ctx.lineWidth = 1.5
+  ctx.beginPath(); ctx.moveTo(cx, cy - 12); ctx.lineTo(cx, cy - 16); ctx.stroke()
+  ctx.restore()
+}
+
+function drawFlame(ctx: CanvasRenderingContext2D, cx: number, cy: number,
+  t: number, progress: number) {
+  if (progress <= 0) return
+  const flicker1 = Math.sin(t * 8.3 + 1.1) * 3
+  const flicker2 = Math.sin(t * 11.7 + 0.4) * 2
+  const h = 14 * progress
+  const w = 6 * progress
+  ctx.save()
+  ctx.globalAlpha = progress
+  // outer flame
+  const og = ctx.createRadialGradient(cx + flicker2, cy - h * 0.6, 0, cx, cy, h + 10)
+  og.addColorStop(0, 'rgba(255,220,80,0.9)')
+  og.addColorStop(0.4, 'rgba(255,140,40,0.6)')
+  og.addColorStop(1, 'transparent')
+  ctx.beginPath()
+  ctx.moveTo(cx - w, cy)
+  ctx.quadraticCurveTo(cx - w * 1.2 + flicker1, cy - h * 0.5, cx + flicker2 * 0.5, cy - h)
+  ctx.quadraticCurveTo(cx + w * 1.2 - flicker1, cy - h * 0.5, cx + w, cy)
+  ctx.closePath()
+  ctx.fillStyle = og; ctx.fill()
+  // inner bright core
+  const ig = ctx.createRadialGradient(cx, cy - h * 0.3, 0, cx, cy - h * 0.3, h * 0.4)
+  ig.addColorStop(0, 'rgba(255,255,200,1)')
+  ig.addColorStop(1, 'transparent')
+  ctx.beginPath(); ctx.arc(cx, cy - h * 0.3, h * 0.4, 0, Math.PI * 2)
+  ctx.fillStyle = ig; ctx.fill()
+  // warm radial light on scene
+  const wg = ctx.createRadialGradient(cx, cy, 0, cx, cy, 280 * progress)
+  wg.addColorStop(0, `rgba(255,180,60,${0.18 * progress})`)
+  wg.addColorStop(1, 'transparent')
+  ctx.beginPath(); ctx.arc(cx, cy, 280, 0, Math.PI * 2)
+  ctx.fillStyle = wg; ctx.fill()
+  ctx.restore()
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DRAW — SMOKE PARTICLES
+// ─────────────────────────────────────────────────────────────────────────────
+
+function updateAndDrawSmoke(ctx: CanvasRenderingContext2D, particles: SmokeP[],
+  originX: number, originY: number, t: number, alpha: number, vortexProgress: number) {
+  if (alpha <= 0) return
+  ctx.save()
+  ctx.globalAlpha = alpha
+
+  // spawn
+  const freeSlot = particles.find(p => !p.active)
+  if (freeSlot && Math.random() < 0.4) {
+    freeSlot.active = true; freeSlot.x = originX + (Math.random()-0.5)*4
+    freeSlot.y = originY; freeSlot.vx = (Math.random()-0.5)*0.3; freeSlot.vy = -0.8 - Math.random()*0.5
+    freeSlot.r = 1; freeSlot.life = 0; freeSlot.alpha = 0.6; freeSlot.seed = Math.random()*100
+  }
+
+  const vortexX = originX
+  const vortexY = originY - 200  // vortex center above the flame
+
+  for (const p of particles) {
+    if (!p.active) continue
+    p.life++
+    if (p.life > p.maxLife) { p.active = false; continue }
+    const prog = p.life / p.maxLife
+
+    if (vortexProgress > 0) {
+      // spiral inward to vortex center
+      const dx = vortexX - p.x, dy = vortexY - p.y
+      const dist = Math.sqrt(dx*dx + dy*dy)
+      const pull = vortexProgress * 0.06
+      p.vx += dx / (dist + 1) * pull - p.y * 0.003 * vortexProgress
+      p.vy += dy / (dist + 1) * pull + p.x * 0.003 * vortexProgress
+    } else {
+      p.vx += Math.sin(t * 2.1 + p.seed) * 0.04
     }
-    resize()
-    window.addEventListener('resize', resize)
-    return () => window.removeEventListener('resize', resize)
-  }, [])
+    p.x += p.vx; p.y += p.vy
+    p.r = lerp(1, p.maxR, prog)
+    p.alpha = 0.6 * (prog < 0.2 ? prog / 0.2 : (1 - prog))
 
-  useEffect(() => {
-    const onMove = (e: MouseEvent) => {
-      mouseRef.current.tx = e.clientX / window.innerWidth
-      mouseRef.current.ty = e.clientY / window.innerHeight
-    }
-    window.addEventListener('mousemove', onMove, { passive: true })
-    return () => window.removeEventListener('mousemove', onMove)
-  }, [])
+    const a = p.alpha * alpha
+    if (a <= 0) continue
+    const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r)
+    g.addColorStop(0, `rgba(240,230,210,${a})`)
+    g.addColorStop(1, 'transparent')
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2)
+    ctx.fillStyle = g; ctx.fill()
+  }
+  ctx.restore()
+}
 
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const ctx = canvas.getContext('2d', { alpha: false })
-    if (!ctx) return
+// ─────────────────────────────────────────────────────────────────────────────
+// DRAW — PORTAL WHITE OVERLAY
+// ─────────────────────────────────────────────────────────────────────────────
 
-    if (!sceneRef.current) sceneRef.current = initScene()
-    const scene = sceneRef.current
+function drawPortal(ctx: CanvasRenderingContext2D, W: number, H: number,
+  cx: number, cy: number, progress: number) {
+  if (progress <= 0) return
+  const maxR = Math.hypot(W, H)
+  const r = maxR * ease(progress)
+  ctx.save()
+  const g = ctx.createRadialGradient(cx, cy * 0.15, 0, cx, cy * 0.15, r)
+  g.addColorStop(0, `rgba(255,255,255,${Math.min(1, progress * 1.4)})`)
+  g.addColorStop(0.6, `rgba(240,235,225,${Math.min(1, progress * 1.2)})`)
+  g.addColorStop(1, 'transparent')
+  ctx.beginPath(); ctx.arc(cx, cy * 0.15, r, 0, Math.PI * 2)
+  ctx.fillStyle = g; ctx.fill()
+  ctx.restore()
+}
 
-    const render = () => {
-      const p = progressRef.current
-      const t = performance.now()
-      const W = canvas.width
-      const H = canvas.height
+// ─────────────────────────────────────────────────────────────────────────────
+// CHAPTER OVERLAY
+// ─────────────────────────────────────────────────────────────────────────────
 
-      const m = mouseRef.current
-      m.x += (m.tx - m.x) * 0.04
-      m.y += (m.ty - m.y) * 0.04
-      const mox = m.x - 0.5
-      const moy = m.y - 0.5
+interface Chapter {
+  id: string; text: string; sub?: string
+  from: number; to: number
+  align: 'left' | 'center' | 'right'
+  size: 'hero' | 'xl' | 'large' | 'medium'
+  condition?: (p: number) => boolean
+}
 
-      // Act detection
-      const act = p < 0.10 ? 0
-        : p < 0.22 ? 1
-        : p < 0.32 ? 2
-        : p < 0.50 ? 3
-        : p < 0.63 ? 4
-        : p < 0.74 ? 5
-        : p < 0.87 ? 6
-        : 7
+const CHAPTERS: Chapter[] = [
+  { id:'ch0', text:'Move with intention.', sub:'Yoga · Breathwork · Wellness Coaching', from:0, to:0.14, align:'left', size:'hero' },
+  { id:'ch1', text:'Let go.', from:0.17, to:0.28, align:'center', size:'large' },
+  { id:'ch2', text:'Deeper.', from:0.31, to:0.44, align:'right', size:'medium' },
+  { id:'ch3', text:'The pattern beneath everything.', from:0.50, to:0.61, align:'left', size:'medium' },
+  { id:'ch4', text:'She is the eye of the storm.', from:0.64, to:0.77, align:'center', size:'large' },
+  { id:'ch5', text:'She sees you.', from:0.84, to:0.92, align:'center', size:'xl', condition:(p)=>p>0.845 },
+  { id:'ch6', text:'A light in the dark.', from:0.88, to:0.93, align:'center', size:'medium' },
+  { id:'ch7', text:'Follow the smoke.', from:0.93, to:1.0, align:'center', size:'large' },
+]
 
-      // Flash triggers on act change
-      if (act !== scene.lastAct) {
-        if (act > scene.lastAct) {
-          const flashIdx = act - 1  // acts 1→7 map to flash indices 0→6
-          if (flashIdx >= 0 && flashIdx < scene.flashes.length) {
-            const f = scene.flashes[flashIdx]
-            if (f) { f.active = true; f.progress = 0 }
-          }
-        }
-        scene.lastAct = act
-      }
+const SIZE_MAP: Record<string, string> = {
+  hero:   'clamp(48px,7vw,80px)',
+  xl:     'clamp(44px,6vw,72px)',
+  large:  'clamp(36px,5vw,60px)',
+  medium: 'clamp(28px,4vw,48px)',
+}
 
-      for (const f of scene.flashes) {
-        if (f.active) {
-          f.progress += 0.035
-          if (f.progress >= 1) { f.active = false; f.progress = 1 }
-        }
-      }
+const ALIGN_STYLE: Record<string, React.CSSProperties> = {
+  left:   { left: 'clamp(32px,5vw,80px)', top: '50%', transform: 'translateY(-50%)' },
+  center: { left: '50%', top: '50%', transform: 'translate(-50%,-50%)' },
+  right:  { right: 'clamp(32px,5vw,80px)', top: '50%', transform: 'translateY(-50%)' },
+}
 
-      // Route
-      if (p < 0.10) {
-        drawAct0(ctx, t, p / 0.10, W, H, mox, moy, scene)
-      } else if (p < 0.22) {
-        drawAct1(ctx, t, (p - 0.10) / 0.12, W, H, mox, moy, scene)
-      } else if (p < 0.32) {
-        drawAct2(ctx, t, (p - 0.22) / 0.10, W, H, mox, moy, scene)
-      } else if (p < 0.50) {
-        drawAct3Hyper(ctx, t, (p - 0.32) / 0.18, W, H, mox, moy, scene)
-      } else if (p < 0.63) {
-        drawAct4(ctx, t, (p - 0.50) / 0.13, W, H, mox, moy, scene)
-      } else if (p < 0.74) {
-        drawAct5(ctx, t, (p - 0.63) / 0.11, W, H, mox, moy, scene)
-      } else if (p < 0.87) {
-        drawAct6(ctx, t, (p - 0.74) / 0.13, W, H, mox, moy, scene)
-      } else {
-        drawAct7(ctx, t, (p - 0.87) / 0.13, W, H, mox, moy, scene)
-      }
-
-      // Flash compositing (Lusion-style light blooms)
-      for (const f of scene.flashes) {
-        if (!f.active && f.progress <= 0) continue
-        if (!f.active && f.progress >= 1) continue
-        const flashT = f.progress < 0.25 ? f.progress / 0.25 : 1 - ((f.progress - 0.25) / 0.75)
-        const a = Math.pow(flashT, 0.4) * 0.88
-        if (a < 0.01) continue
-        const cx2 = W / 2; const cy2 = H / 2; const r = Math.max(W, H) * 1.5
-        const fg = ctx.createRadialGradient(cx2, cy2, 0, cx2, cy2, r)
-        fg.addColorStop(0, `rgba(${f.r},${f.g},${f.b},${a})`)
-        fg.addColorStop(0.3, `rgba(${f.r},${f.g},${f.b},${a * 0.55})`)
-        fg.addColorStop(1, `rgba(${f.r},${f.g},${f.b},0)`)
-        ctx.fillStyle = fg
-        ctx.fillRect(0, 0, W, H)
-      }
-
-      rafRef.current = requestAnimationFrame(render)
-    }
-
-    rafRef.current = requestAnimationFrame(render)
-    return () => cancelAnimationFrame(rafRef.current)
-  }, [])
+function ChapterOverlay({ progress }: { progress: number }) {
+  const visible = CHAPTERS.filter(ch => {
+    if (progress < ch.from - 0.02 || progress > ch.to + 0.02) return false
+    if (ch.condition && !ch.condition(progress)) return false
+    return true
+  })
 
   return (
-    <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: '100%' }} />
+    <div style={{ position:'absolute', inset:0, pointerEvents:'none', zIndex:10 }}>
+      <AnimatePresence>
+        {visible.map(ch => (
+          <motion.div
+            key={ch.id}
+            initial={{ opacity:0, y:20 }}
+            animate={{ opacity:1, y:0 }}
+            exit={{ opacity:0, y:-10 }}
+            transition={{ duration:1.2, ease:[0.16,1,0.3,1] }}
+            style={{
+              position: 'absolute',
+              ...ALIGN_STYLE[ch.align],
+              maxWidth: ch.align === 'center' ? '80vw' : 'min(560px,45vw)',
+              textAlign: ch.align,
+            }}
+          >
+            <p style={{
+              fontFamily:"'Cormorant Garamond',Georgia,serif",
+              fontStyle:'italic', fontWeight:300,
+              fontSize: SIZE_MAP[ch.size],
+              color: '#f5f0e8',
+              letterSpacing:'-1px', lineHeight:1.1, margin:0,
+              textShadow:'0 2px 40px rgba(0,0,0,0.8)',
+            }}>
+              {ch.text}
+            </p>
+            {ch.sub && (
+              <p style={{
+                fontFamily:'var(--font-body,sans-serif)',
+                fontSize:'11px', letterSpacing:'3px', textTransform:'uppercase',
+                color:'rgba(127,168,130,0.8)', marginTop:16,
+              }}>
+                {ch.sub}
+              </p>
+            )}
+          </motion.div>
+        ))}
+      </AnimatePresence>
+    </div>
   )
 }
 
-// ─────────────────────────────────────────────
-// ACT 0: 3D STARFIELD — parallax + meditator
-// ─────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// SCROLL HINT
+// ─────────────────────────────────────────────────────────────────────────────
 
-function drawAct0(
-  ctx: CanvasRenderingContext2D, t: number, lp: number,
-  W: number, H: number, mox: number, moy: number, scene: SceneData
-) {
-  const cx = W / 2; const cy = H / 2
-
-  // Deep space background
-  ctx.fillStyle = `hsl(230,25%,${2 + lp * 2}%)`
-  ctx.fillRect(0, 0, W, H)
-
-  // Subtle nebula at center
-  ctx.save()
-  ctx.globalCompositeOperation = 'lighter'
-  const nebR = Math.min(W, H) * 0.55
-  const neb = ctx.createRadialGradient(cx + mox * 30, cy + moy * 20, 0, cx, cy, nebR)
-  neb.addColorStop(0, `rgba(60,90,140,${0.08 * lp})`)
-  neb.addColorStop(0.4, `rgba(40,70,110,${0.05 * lp})`)
-  neb.addColorStop(1, 'rgba(20,40,80,0)')
-  ctx.fillStyle = neb
-  ctx.fillRect(0, 0, W, H)
-  ctx.globalCompositeOperation = 'source-over'
-  ctx.restore()
-
-  // Slow dome rotation
-  const domeSpin = t * 0.000045
-
-  // Draw depth stars
-  ctx.save()
-  ctx.globalCompositeOperation = 'lighter'
-  for (const star of scene.depthStars) {
-    // Parallax: nearer stars (higher z) shift more with mouse
-    const parallaxStrength = star.z * 0.18
-    const spinOffset = domeSpin * star.z * 0.6
-    const sx = cx + (star.x * W + Math.cos(spinOffset) * star.z * W * 0.04 + mox * parallaxStrength * W)
-    const sy = cy + (star.y * H + Math.sin(spinOffset) * star.z * H * 0.025 + moy * parallaxStrength * H * 0.7)
-
-    const twinkle = Math.sin(t * 0.001 * star.twinkle + star.phase) * 0.35 + 0.65
-    const alpha = star.brightness * twinkle * Math.min(1, lp * 3)
-    if (alpha < 0.02) continue
-
-    const screenSize = star.size * (0.5 + star.z * 0.8)
-
-    // Color: white with occasional blue/gold tint
-    if (star.hue > 0) {
-      ctx.fillStyle = `hsla(${star.hue},60%,80%,${alpha * 0.7})`
-    } else {
-      ctx.fillStyle = `rgba(${200 + star.size * 12},${210 + star.size * 6},240,${alpha})`
-    }
-    ctx.beginPath()
-    ctx.arc(sx, sy, Math.max(0.3, screenSize), 0, Math.PI * 2)
-    ctx.fill()
-
-    // Glow for bright close stars
-    if (star.size > 1.3 && star.z > 0.7) {
-      const gr = ctx.createRadialGradient(sx, sy, 0, sx, sy, screenSize * 5)
-      gr.addColorStop(0, `rgba(200,220,255,${alpha * 0.18})`)
-      gr.addColorStop(1, 'rgba(200,220,255,0)')
-      ctx.fillStyle = gr
-      ctx.beginPath()
-      ctx.arc(sx, sy, screenSize * 5, 0, Math.PI * 2)
-      ctx.fill()
-    }
-  }
-  ctx.globalCompositeOperation = 'source-over'
-  ctx.restore()
-
-  // Horizon atmosphere glow
-  const atm = ctx.createLinearGradient(0, H * 0.55, 0, H)
-  atm.addColorStop(0, 'rgba(0,0,0,0)')
-  atm.addColorStop(1, `rgba(8,12,28,${0.6 * lp})`)
-  ctx.fillStyle = atm
-  ctx.fillRect(0, H * 0.55, W, H * 0.45)
-
-  // Meditator — close-up on back, large, lower center of frame
-  const figScale0 = (H * 0.42) / 72        // 42% of screen height = true close-up
-  const figY = cy + H * 0.28 + moy * 8     // lower-center so back fills the frame
-  drawFigureBack(ctx, t, cx + mox * 6, figY, figScale0, true)
+function ScrollHint({ visible }: { visible: boolean }) {
+  return (
+    <motion.div
+      animate={{ opacity: visible ? 1 : 0 }}
+      transition={{ duration:0.8 }}
+      style={{
+        position:'absolute', bottom:40, left:'50%', transform:'translateX(-50%)',
+        display:'flex', flexDirection:'column', alignItems:'center', gap:10,
+        pointerEvents:'none', zIndex:10,
+      }}
+    >
+      <span style={{
+        fontFamily:'var(--font-body,sans-serif)', fontSize:'10px',
+        letterSpacing:'3px', textTransform:'uppercase', color:'rgba(127,168,130,0.7)',
+      }}>
+        scroll to explore
+      </span>
+      <div style={{
+        width:1, height:32, background:'rgba(127,168,130,0.5)',
+        animation:'scrollPulse 2s ease-in-out infinite',
+      }}/>
+    </motion.div>
+  )
 }
 
-// ─────────────────────────────────────────────
-// ACT 1: THE FALL + RIPPLE
-// ─────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// PROGRESS RING (SVG)
+// ─────────────────────────────────────────────────────────────────────────────
 
-function drawAct1(
-  ctx: CanvasRenderingContext2D, t: number, lp: number,
-  W: number, H: number, mox: number, moy: number, scene: SceneData
-) {
-  const cx = W / 2; const cy = H / 2
+function ProgressRing({ progress }: { progress: number }) {
+  const r = 18, circ = 2 * Math.PI * r
+  const dash = circ * progress
+  return (
+    <div style={{
+      position:'absolute', bottom:32, right:32, zIndex:12,
+      opacity: progress > 0.01 ? 1 : 0,
+      transition:'opacity 600ms ease',
+    }}>
+      <svg width={44} height={44} style={{ transform:'rotate(-90deg)' }}>
+        <circle cx={22} cy={22} r={r} fill="none" stroke="rgba(127,168,130,0.15)" strokeWidth={1.5}/>
+        <circle cx={22} cy={22} r={r} fill="none" stroke="#7fa882" strokeWidth={1.5}
+          strokeDasharray={`${dash} ${circ}`} strokeLinecap="round"
+          style={{ transition:'stroke-dasharray 200ms ease' }}/>
+      </svg>
+    </div>
+  )
+}
 
-  // Stars fade out quickly as water world takes over
-  const starFade = Math.max(0, 1 - lp * 2.5)
-  if (starFade > 0.02) {
-    ctx.fillStyle = `hsl(230,25%,3%)`
-    ctx.fillRect(0, 0, W, H)
+// ─────────────────────────────────────────────────────────────────────────────
+// BREATHE BADGE
+// ─────────────────────────────────────────────────────────────────────────────
+
+function BreatheBadge({ visible }: { visible: boolean }) {
+  return (
+    <motion.div
+      animate={{ opacity: visible ? 1 : 0 }}
+      transition={{ duration:1.0 }}
+      style={{
+        position:'absolute', top:28, right:32, zIndex:12,
+        display:'flex', alignItems:'center', gap:6,
+        background:'rgba(13,15,14,0.55)',
+        backdropFilter:'blur(12px)',
+        border:'1px solid rgba(127,168,130,0.2)',
+        borderRadius:100, padding:'6px 14px',
+        pointerEvents:'none',
+      }}
+    >
+      <div style={{ width:6, height:6, borderRadius:'50%', background:'var(--sage,#7fa882)', animation:'breathePulse 5.5s ease-in-out infinite' }}/>
+      <span style={{
+        fontFamily:'var(--font-body,sans-serif)', fontSize:'10px',
+        letterSpacing:'2px', textTransform:'uppercase', color:'rgba(200,220,200,0.7)',
+      }}>
+        breathe slowly
+      </span>
+    </motion.div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CURSOR RIPPLES
+// ─────────────────────────────────────────────────────────────────────────────
+
+function drawCursorRipples(ctx: CanvasRenderingContext2D, ripples: CursorRipple[],
+  mouseX: number, mouseY: number, alpha: number) {
+  if (alpha <= 0) return
+  for (let i = 0; i < ripples.length; i++) {
+    const r = ripples[i]
+    r.x += (mouseX - r.x) * r.lerp
+    r.y += (mouseY - r.y) * r.lerp
+    if (i === 0) { r.r = 20; r.alpha = 0.3 }
+    else { r.r = 20 + i * 8; r.alpha = 0.12 - i * 0.03 }
     ctx.save()
-    ctx.globalCompositeOperation = 'lighter'
-    const domeSpin = t * 0.000045
-    for (const star of scene.depthStars) {
-      const parallaxStrength = star.z * 0.18
-      const spinOffset = domeSpin * star.z * 0.6
-      const sx = cx + (star.x * W + Math.cos(spinOffset) * star.z * W * 0.04 + mox * parallaxStrength * W)
-      const sy = cy + (star.y * H + Math.sin(spinOffset) * star.z * H * 0.025 + moy * parallaxStrength * H * 0.7)
-      const twinkle = Math.sin(t * 0.001 * star.twinkle + star.phase) * 0.35 + 0.65
-      const alpha = star.brightness * twinkle * starFade
-      if (alpha < 0.02) continue
-      const screenSize = star.size * (0.5 + star.z * 0.8)
-      ctx.fillStyle = `rgba(200,210,240,${alpha})`
-      ctx.beginPath(); ctx.arc(sx, sy, Math.max(0.3, screenSize), 0, Math.PI * 2); ctx.fill()
+    ctx.globalAlpha = r.alpha * alpha
+    ctx.strokeStyle = '#7fa882'; ctx.lineWidth = 1
+    ctx.beginPath(); ctx.arc(r.x, r.y, r.r, 0, Math.PI * 2); ctx.stroke()
+    ctx.restore()
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN COMPONENT
+// ─────────────────────────────────────────────────────────────────────────────
+
+export default function MountainJourney() {
+  const { containerRef, progress } = useScrollProgress()
+  const canvasRef  = useRef<HTMLCanvasElement>(null)
+  const progressRef = useRef(0)
+  const scene      = useRef<SceneRefs | null>(null)
+  const streaksRef = useRef<WarpStreak[]>([])
+  const isMobile   = useRef(typeof window !== 'undefined' && window.innerWidth < 768)
+  const [showScrollHint, setShowScrollHint] = useState(true)
+  const [showBadge, setShowBadge] = useState(false)
+
+  // sync progress to ref (no re-render on every scroll tick)
+  useEffect(() => { progressRef.current = progress }, [progress])
+  useEffect(() => { if (progress > 0.02) setShowScrollHint(false) }, [progress])
+  useEffect(() => { if (progress > 0.05) setShowBadge(true) }, [progress])
+
+  // init scene data once
+  const getScene = useCallback((W: number, H: number): SceneRefs => {
+    const mobile = isMobile.current
+    const mistCount = mobile ? 770 : 2200
+    const bioCount  = mobile ? 280 : 800
+    const smokeCount = mobile ? 14 : 40
+    return {
+      stars:       initStars(mobile ? 1200 : 3000),
+      mist:        initMist(mistCount, W, H),
+      bio:         initBio(bioCount, W, H),
+      smoke:       initSmoke(smokeCount),
+      auraRings:   initAuraRings(),
+      cursor:      initCursorRipples(),
+      mouseX:      W / 2, mouseY: H / 2,
+      camX:0, camY:0,
+      breathPhase: 0,
+      figTumbleX:  0, figTumbleV: 0,
+      scrollVel:   0,
+      lastProgress:0,
+      navigated:   false,
+      raf:         0,
+      t:           0,
     }
-    ctx.globalCompositeOperation = 'source-over'
-    ctx.restore()
-  } else {
-    ctx.fillStyle = '#050a0c'
-    ctx.fillRect(0, 0, W, H)
-  }
+  }, [])
 
-  // ── Figure sizing matches Act 0 close-up ──
-  const figScale1 = (H * 0.42) / 72
-  const figX = cx + mox * 6
-  // Water surface Y — the figure's feet rest ON the water
-  const waterY = cy + H * 0.28 + 14 * figScale1   // same position as Act 0 figure base
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
 
-  // ── Phases ──
-  const fallPhase   = Math.min(1, lp / 0.38)                    // 0→1: figure tips into water
-  const entryPhase  = lp > 0.35 ? Math.min(1, (lp - 0.35) / 0.18) : 0  // sinking into water
-  const ripplePhase = Math.max(0, (lp - 0.38) / 0.62)           // ripples expand outward
-  const sinkPhase   = lp > 0.40 ? Math.min(1, (lp - 0.40) / 0.45) : 0  // figure disappears below
+    let W = window.innerWidth, H = window.innerHeight
+    canvas.width = W; canvas.height = H
+    streaksRef.current = initWarpStreaks(isMobile.current ? 105 : 300)
 
-  // ── Water surface — appears and brightens as fall progresses ──
-  const waterAppear = Math.min(1, lp * 3)
-  if (waterAppear > 0) {
-    // Below-water fill — deepens as camera follows
-    const depthFill = ctx.createLinearGradient(0, waterY, 0, H)
-    depthFill.addColorStop(0, `rgba(8,40,55,${waterAppear * 0.9})`)
-    depthFill.addColorStop(1, `rgba(4,20,35,${waterAppear})`)
-    ctx.fillStyle = depthFill
-    ctx.fillRect(0, waterY, W, H - waterY)
+    if (!scene.current) scene.current = getScene(W, H)
+    const s = scene.current
 
-    // Wavy surface line
-    ctx.save()
-    ctx.beginPath()
-    const waveSteps = 120
-    for (let i = 0; i <= waveSteps; i++) {
-      const wx = (i / waveSteps) * W
-      const wy = waterY
-        + Math.sin(wx * 0.012 + t * 0.0018) * (5 + entryPhase * 18)
-        + Math.sin(wx * 0.007 + t * 0.0012) * (3 + entryPhase * 10)
-        + Math.sin(wx * 0.022 - t * 0.002) * 2
-      i === 0 ? ctx.moveTo(wx, wy) : ctx.lineTo(wx, wy)
-    }
-    // Shimmer line
-    const shimmerAlpha = 0.5 + Math.sin(t * 0.002) * 0.15
-    ctx.strokeStyle = `rgba(160,220,240,${shimmerAlpha * waterAppear})`
-    ctx.lineWidth = 1.5
-    ctx.stroke()
-
-    // Surface caustic glow
-    ctx.globalCompositeOperation = 'lighter'
-    const surfGrad = ctx.createLinearGradient(0, waterY - 30, 0, waterY + 60)
-    surfGrad.addColorStop(0, 'rgba(0,0,0,0)')
-    surfGrad.addColorStop(0.4, `rgba(60,160,200,${0.12 * waterAppear})`)
-    surfGrad.addColorStop(1, 'rgba(0,0,0,0)')
-    ctx.fillStyle = surfGrad
-    ctx.fillRect(0, waterY - 30, W, 90)
-    ctx.globalCompositeOperation = 'source-over'
-    ctx.restore()
-  }
-
-  // ── Falling / sinking figure ──
-  const figBaseY = cy + H * 0.28   // matches Act 0 position
-  ctx.save()
-  ctx.translate(figX, figBaseY)
-
-  if (sinkPhase < 1) {
-    const tilt = fallPhase * Math.PI * 0.5   // X-axis rotation: 0=upright, PI/2=flat
-    const sinkY = sinkPhase * figScale1 * 85
-    const pivotY = 14 * figScale1
-
-    ctx.save()
-    if (sinkPhase > 0) {
-      ctx.beginPath()
-      ctx.rect(-W, -H * 2, W * 2, H * 2 + (waterY - figBaseY))
-      ctx.clip()
-    }
-    // X-axis rotation simulation: squash Y around seat pivot
-    ctx.translate(0, sinkY)
-    ctx.translate(0, pivotY)
-    ctx.scale(1, Math.cos(tilt))
-    ctx.translate(0, -pivotY)
-    ctx.globalAlpha = Math.max(0, 1 - sinkPhase * 1.6)
-    ctx.scale(figScale1, figScale1)
-    drawFigureLocalBack(ctx, t, 0)
-    ctx.restore()
-  }
-  ctx.globalAlpha = 1
-  ctx.restore()
-
-  // ── Water surface splash — brightens as figure enters ──
-  if (entryPhase > 0 && entryPhase < 1) {
-    const splashA = Math.sin(entryPhase * Math.PI) * 0.7
-    ctx.save()
-    ctx.globalCompositeOperation = 'lighter'
-    const splashGrad = ctx.createRadialGradient(figX, waterY, 0, figX, waterY, W * 0.35)
-    splashGrad.addColorStop(0, `rgba(180,240,255,${splashA * 0.9})`)
-    splashGrad.addColorStop(0.25, `rgba(120,210,240,${splashA * 0.45})`)
-    splashGrad.addColorStop(1, 'rgba(60,140,190,0)')
-    ctx.fillStyle = splashGrad
-    ctx.fillRect(0, 0, W, H)
-    ctx.globalCompositeOperation = 'source-over'
-    ctx.restore()
-  }
-
-  // ── Concentric water ripples from entry point ──
-  if (ripplePhase > 0) {
-    const impactX = figX
-    const impactY = waterY
-
-    // Draw ripples as ellipses (perspective-flattened on water surface)
-    const ringCount = 10
-    for (let r = 0; r < ringCount; r++) {
-      const delay = r * 0.07
-      const rp = Math.max(0, ripplePhase - delay)
-      if (rp <= 0) continue
-
-      const rx = rp * W * 0.9                 // wide horizontal spread
-      const ry = rx * 0.22                    // flat ellipse = water surface perspective
-      const alpha = Math.max(0, (1 - rp) * (1 - r * 0.07)) * 0.75
-
-      if (alpha < 0.01) continue
-
-      const rippleHue = 185 + r * 2
-      ctx.save()
-      ctx.globalCompositeOperation = r < 4 ? 'lighter' : 'source-over'
-      ctx.beginPath()
-      ctx.ellipse(impactX, impactY, rx, ry, 0, 0, Math.PI * 2)
-      ctx.strokeStyle = `hsla(${rippleHue},70%,75%,${alpha})`
-      ctx.lineWidth = Math.max(0.4, (2.8 - r * 0.22) * (1 - rp * 0.6))
-      ctx.stroke()
-
-      // Glow band inside ring
-      if (r < 5 && alpha > 0.08) {
-        const innerG = ctx.createRadialGradient(impactX, impactY, 0, impactX, impactY, rx)
-        innerG.addColorStop(Math.max(0, 1 - 0.12 / Math.max(0.01, rp)), `hsla(${rippleHue},70%,78%,0)`)
-        innerG.addColorStop(1, `hsla(${rippleHue},70%,78%,${alpha * 0.35})`)
-        ctx.fillStyle = innerG
-        ctx.beginPath()
-        ctx.ellipse(impactX, impactY, rx, ry, 0, 0, Math.PI * 2)
-        ctx.fill()
+    function onResize() {
+      W = window.innerWidth; H = window.innerHeight
+      if (!canvasRef.current) return
+      canvasRef.current.width = W; canvasRef.current.height = H
+      if (scene.current) {
+        scene.current.mist = initMist(isMobile.current ? 770 : 2200, W, H)
+        scene.current.bio  = initBio(isMobile.current ? 280 : 800, W, H)
       }
-      ctx.restore()
+    }
+    function onMouse(e: MouseEvent) {
+      if (scene.current) { scene.current.mouseX = e.clientX; scene.current.mouseY = e.clientY }
     }
 
-    // Surface glow at entry point — fades as camera follows under
-    const entryGlow = Math.max(0, 1 - ripplePhase * 1.8)
-    if (entryGlow > 0) {
-      ctx.save()
-      ctx.globalCompositeOperation = 'lighter'
-      const eg = ctx.createRadialGradient(impactX, impactY, 0, impactX, impactY, 80)
-      eg.addColorStop(0, `rgba(150,230,250,${entryGlow * 0.6})`)
-      eg.addColorStop(1, 'rgba(80,180,220,0)')
-      ctx.fillStyle = eg
-      ctx.beginPath(); ctx.arc(impactX, impactY, 80, 0, Math.PI * 2); ctx.fill()
-      ctx.globalCompositeOperation = 'source-over'
-      ctx.restore()
-    }
-  }
-}
+    window.addEventListener('resize', onResize)
+    window.addEventListener('mousemove', onMouse)
 
-// ─────────────────────────────────────────────
-// ACT 2: THROUGH THE WATER SURFACE
-// ─────────────────────────────────────────────
+    // ── RAF LOOP ──────────────────────────────────────────────────────────────
+    function frame() {
+      if (!ctx) return
+      s.raf = requestAnimationFrame(frame)
+      s.t += 0.016
+      const p = progressRef.current
 
-function drawAct2(
-  ctx: CanvasRenderingContext2D, t: number, lp: number,
-  W: number, H: number, mox: number, moy: number, scene: SceneData
-) {
-  const cx = W / 2; const cy = H / 2
+      // scroll velocity
+      s.scrollVel = (p - s.lastProgress) * 60
+      s.lastProgress = p
 
-  // Camera push-through: 0 = looking at surface, 1 = deep below
-  const throughPhase = Math.pow(lp, 0.7)
+      // breath
+      s.breathPhase += 0.006
 
-  // Deep water color — boosted lightness so caustics are visible
-  const deepBlue = `hsl(${200 - throughPhase * 20},${50 + throughPhase * 20}%,${10 + throughPhase * 12}%)`
-  ctx.fillStyle = deepBlue
-  ctx.fillRect(0, 0, W, H)
+      // camera parallax
+      s.camX += (s.mouseX - W * 0.5 - s.camX) * 0.025
+      s.camY += (s.mouseY - H * 0.5 - s.camY) * 0.025
 
-  // ── Caustic light from surface above ──
-  // Keep caustics visible through full act — fade gently in second half
-  const surfaceAlpha = Math.max(0, 1 - throughPhase * 0.75)
-  if (surfaceAlpha > 0.01) {
-    ctx.save()
-    ctx.globalCompositeOperation = 'lighter'
-
-    // Moving caustic rings — overlapping ellipses of light
-    const causticCount = 28
-    for (let i = 0; i < causticCount; i++) {
-      const seed = i * 137.508
-      const cx2 = cx + Math.sin(seed * 0.031 + t * 0.0005 + mox * 0.4) * W * 0.42
-      const cy2 = cy * 0.5 + Math.cos(seed * 0.027 + t * 0.0004 + moy * 0.3) * H * 0.28
-      const r = (25 + Math.sin(seed * 0.11 + t * 0.0008) * 18) * (W / 1440)
-      const alpha = (0.22 + Math.sin(seed * 0.07 + t * 0.001) * 0.1) * surfaceAlpha
-
-      const cg = ctx.createRadialGradient(cx2, cy2, 0, cx2, cy2, r * 3)
-      cg.addColorStop(0, `rgba(150,220,240,${alpha * 2.0})`)
-      cg.addColorStop(0.3, `rgba(100,190,220,${alpha})`)
-      cg.addColorStop(1, 'rgba(60,150,190,0)')
-      ctx.fillStyle = cg
-      ctx.beginPath()
-      ctx.ellipse(cx2, cy2, r * 3, r * 2, seed * 0.1, 0, Math.PI * 2)
-      ctx.fill()
-    }
-
-    // Vertical light shafts from surface
-    for (let s = 0; s < 8; s++) {
-      const sx = cx + (s / 8 - 0.5 + 1 / 16) * W * 0.9 + mox * 30
-      const shaftAlpha = (0.16 + Math.sin(s * 1.3 + t * 0.0006) * 0.08) * surfaceAlpha
-      const sg = ctx.createLinearGradient(sx - 20, 0, sx + 20, H * 0.8)
-      sg.addColorStop(0, `rgba(140,220,240,${shaftAlpha * 1.8})`)
-      sg.addColorStop(0.5, `rgba(90,185,215,${shaftAlpha})`)
-      sg.addColorStop(1, 'rgba(60,150,190,0)')
-      ctx.fillStyle = sg
-      ctx.fillRect(sx - 20 + Math.sin(t * 0.0007 + s) * 10, 0, 40, H * 0.8)
-    }
-    ctx.globalCompositeOperation = 'source-over'
-    ctx.restore()
-  }
-
-  // ── Water membrane surface visible above ──
-  const membraneY = H * (0.25 - throughPhase * 0.6)
-  if (membraneY > -50) {
-    // Wavy surface line
-    ctx.save()
-    ctx.beginPath()
-    ctx.moveTo(0, membraneY)
-    const steps = 80
-    for (let s = 0; s <= steps; s++) {
-      const sx = (s / steps) * W
-      const wave1 = Math.sin(sx * 0.008 + t * 0.0015 + mox * 2) * 12
-      const wave2 = Math.sin(sx * 0.013 + t * 0.001) * 7
-      ctx.lineTo(sx, membraneY + wave1 + wave2)
-    }
-    ctx.lineTo(W, 0); ctx.lineTo(0, 0); ctx.closePath()
-
-    // Above surface = lighter / more reflective
-    const surfGrad = ctx.createLinearGradient(0, membraneY - 60, 0, membraneY + 20)
-    surfGrad.addColorStop(0, `rgba(100,180,210,${0.25 * (1 - throughPhase)})`)
-    surfGrad.addColorStop(0.7, `rgba(70,150,190,${0.12 * (1 - throughPhase)})`)
-    surfGrad.addColorStop(1, 'rgba(50,130,170,0)')
-    ctx.fillStyle = surfGrad
-    ctx.fill()
-
-    // Surface shimmer line
-    ctx.beginPath()
-    for (let s = 0; s <= steps; s++) {
-      const sx = (s / steps) * W
-      const wave1 = Math.sin(sx * 0.008 + t * 0.0015 + mox * 2) * 12
-      const wave2 = Math.sin(sx * 0.013 + t * 0.001) * 7
-      s === 0 ? ctx.moveTo(sx, membraneY + wave1 + wave2) : ctx.lineTo(sx, membraneY + wave1 + wave2)
-    }
-    ctx.strokeStyle = `rgba(180,230,245,${0.35 * (1 - throughPhase * 1.5)})`
-    ctx.lineWidth = 1.5
-    ctx.stroke()
-    ctx.restore()
-  }
-
-  // ── Scan-line distortion as we push through ──
-  if (throughPhase > 0.3 && throughPhase < 0.85) {
-    const distortStrength = Math.sin((throughPhase - 0.3) / 0.55 * Math.PI) * 0.6
-    const lineCount = 12
-    ctx.save()
-    ctx.globalCompositeOperation = 'lighter'
-    for (let i = 0; i < lineCount; i++) {
-      const lineY = (i / lineCount) * H + Math.sin(t * 0.0012 + i) * 20
-      const lineAlpha = 0.035 * distortStrength * (0.5 + Math.sin(i * 0.8 + t * 0.0018) * 0.5)
-      const lg = ctx.createLinearGradient(0, lineY, W, lineY)
-      lg.addColorStop(0, `rgba(80,180,210,0)`)
-      lg.addColorStop(0.5, `rgba(80,180,210,${lineAlpha})`)
-      lg.addColorStop(1, `rgba(80,180,210,0)`)
-      ctx.fillStyle = lg
-      ctx.fillRect(0, lineY - 1, W, 2)
-    }
-    ctx.globalCompositeOperation = 'source-over'
-    ctx.restore()
-  }
-
-  // ── Deep void emerges below ──
-  if (throughPhase > 0.6) {
-    const voidAlpha = (throughPhase - 0.6) / 0.4
-    const vg = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W, H) * 0.8)
-    vg.addColorStop(0, `rgba(5,8,18,${voidAlpha * 0.7})`)
-    vg.addColorStop(0.5, `rgba(3,5,12,${voidAlpha * 0.4})`)
-    vg.addColorStop(1, 'rgba(0,0,0,0)')
-    ctx.fillStyle = vg
-    ctx.fillRect(0, 0, W, H)
-  }
-
-  // ── Deep ambient bioluminescent glow when submerged ──
-  if (throughPhase > 0.2) {
-    const deepAlpha = Math.min(1, (throughPhase - 0.2) / 0.5)
-    ctx.save()
-    ctx.globalCompositeOperation = 'lighter'
-    const dg = ctx.createRadialGradient(cx, cy * 1.3, 0, cx, cy * 1.3, Math.min(W, H) * 0.8)
-    dg.addColorStop(0, `rgba(40,140,160,${deepAlpha * 0.35})`)
-    dg.addColorStop(0.4, `rgba(20,100,130,${deepAlpha * 0.18})`)
-    dg.addColorStop(1, 'rgba(10,60,100,0)')
-    ctx.fillStyle = dg
-    ctx.fillRect(0, 0, W, H)
-    ctx.globalCompositeOperation = 'source-over'
-    ctx.restore()
-  }
-
-  // ── Particle motes rising in water ──
-  ctx.save()
-  ctx.globalCompositeOperation = 'lighter'
-  for (let i = 0; i < 80; i++) {
-    const seed = i * 73.1
-    const px = cx + Math.sin(seed * 0.08 + t * 0.0003 + mox * 0.5) * W * 0.46
-    const py = ((1 - ((t * 0.00008 + seed * 0.011) % 1)) * H * 1.2) - H * 0.1
-    const moteAlpha = (0.3 + Math.sin(seed * 0.15 + t * 0.002) * 0.15)
-    if (moteAlpha < 0.01) continue
-    ctx.beginPath()
-    ctx.arc(px, py, 1.5 + Math.sin(seed * 0.2) * 1.0, 0, Math.PI * 2)
-    ctx.fillStyle = `rgba(140,220,240,${moteAlpha})`
-    ctx.fill()
-  }
-  ctx.globalCompositeOperation = 'source-over'
-  ctx.restore()
-}
-
-// ─────────────────────────────────────────────
-// ACT 3: HYPERSPACE 4D GEOMETRY
-// ─────────────────────────────────────────────
-
-function drawAct3Hyper(
-  ctx: CanvasRenderingContext2D, t: number, lp: number,
-  W: number, H: number, mox: number, moy: number, scene: SceneData
-) {
-  const cx = W / 2 + mox * 50; const cy = H / 2 + moy * 35
-
-  // Pure void — maximum contrast for wireframe visibility
-  ctx.fillStyle = `hsl(222,30%,${2 + lp * 2}%)`
-  ctx.fillRect(0, 0, W, H)
-
-  // Smaller FOV so polytope fits within viewport as a single object, not a flood
-  const fov4 = Math.min(W, H) * 0.18 * (0.6 + lp * 0.5)
-  const fov3 = Math.min(W, H) * 0.22
-
-  // ── Only render tesseract (32 edges) — secondary polytopes overwhelm the scene ──
-  const polyAlphas = [
-    0.85,   // tesseract: primary crisp
-    0.35,   // 16-cell: ghost secondary
-    0.0,    // 24-cell: disabled (96 edges = too much coverage)
-  ]
-  const polyLineWidths = [
-    0.9,
-    0.5,
-    0.0,
-  ]
-
-  for (let pi = 0; pi < scene.polytopes.length; pi++) {
-    const poly = scene.polytopes[pi]
-    const baseAlpha = polyAlphas[pi]
-    const lw = polyLineWidths[pi]
-
-    // Project all vertices
-    const projected: [number, number, number][] = poly.verts.map(v => {
-      const s = [...v].map(c => c * poly.scale)
-      const r = rotatePoly(s, t, poly.rotPhase)
-      const [px, py, pz] = project4to2(r, fov4, fov3)
-      return [cx + px, cy + py, pz]
-    })
-
-    // Draw edges with depth-based alpha — use source-over to avoid 'lighter' wash
-    ctx.save()
-    ctx.globalCompositeOperation = 'source-over'
-
-    for (const [a, b] of poly.edges) {
-      const [ax, ay, az] = projected[a]
-      const [bx, by, bz] = projected[b]
-
-      // Depth-based alpha
-      const depthFactor = Math.max(0.15, 1 - Math.abs(az + bz) * 0.12)
-      const alpha = baseAlpha * depthFactor
-
-      if (pi === 0) {
-        // Tesseract: chromatic aberration pass
-        const caOff = 2.0 * (1 - lp * 0.3)
-        const passes: [number, string][] = [
-          [-caOff, `hsla(0,80%,70%,${alpha * 0.25})`],
-          [0,      `hsla(${poly.hue},75%,72%,${alpha})`],
-          [caOff,  `hsla(195,80%,72%,${alpha * 0.25})`],
-        ]
-        for (const [dx, color] of passes) {
-          ctx.beginPath()
-          ctx.moveTo(ax + dx, ay)
-          ctx.lineTo(bx + dx, by)
-          ctx.strokeStyle = color
-          ctx.lineWidth = lw
-          ctx.shadowBlur = 0
-          ctx.stroke()
-        }
+      // figure tumble (Act 01)
+      if (p > 0.28 && p < 0.45) {
+        s.figTumbleV += s.scrollVel * 0.8
+        s.figTumbleX += s.figTumbleV
+        s.figTumbleV *= 0.96
       } else {
-        ctx.beginPath()
-        ctx.moveTo(ax, ay)
-        ctx.lineTo(bx, by)
-        ctx.strokeStyle = `hsla(${poly.hue},65%,65%,${alpha})`
-        ctx.lineWidth = lw
-        ctx.shadowBlur = 0
-        ctx.stroke()
+        s.figTumbleX *= 0.95
+        s.figTumbleV *= 0.9
       }
-    }
 
-    // Vertex glow nodes — capped radius so they don't overexpose
-    for (const [px, py] of projected) {
-      const pulse = Math.sin(t * 0.003 + px * 0.01 + py * 0.008) * 0.5 + 0.5
-      const glowR = Math.min(10, 4 + lw * 2)
-      const vg = ctx.createRadialGradient(px, py, 0, px, py, glowR)
-      vg.addColorStop(0, `hsla(${poly.hue + 20},90%,90%,${baseAlpha * 0.8 * pulse})`)
-      vg.addColorStop(1, `hsla(${poly.hue},70%,60%,0)`)
-      ctx.fillStyle = vg
-      ctx.beginPath()
-      ctx.arc(px, py, glowR, 0, Math.PI * 2)
-      ctx.fill()
-    }
-
-    // ── Mirror flash pass — sharp specular burst at peak of pulse ──
-    // Each polytope independently flashes like a mirror catching light
-    const mirrorPulse = Math.pow(Math.max(0, Math.sin(t * 0.0031 + pi * 2.4)), 6)
-    if (mirrorPulse > 0.05 && pi === 0) {
-      ctx.save()
-      ctx.globalCompositeOperation = 'lighter'
-      for (const [a, b] of poly.edges) {
-        const [ax, ay] = projected[a]
-        const [bx, by] = projected[b]
-        ctx.beginPath()
-        ctx.moveTo(ax, ay); ctx.lineTo(bx, by)
-        ctx.strokeStyle = `rgba(255,255,255,${mirrorPulse * 0.7})`
-        ctx.lineWidth = lw * 2.5
-        ctx.shadowColor = `rgba(200,240,255,${mirrorPulse * 0.8})`
-        ctx.shadowBlur = 18
-        ctx.stroke()
+      // ── BACKGROUND COLOR ──────────────────────────────────────────────────
+      let bgR: [number,number,number]
+      if (p < 0.15) {
+        bgR = BG_SURFACE
+      } else if (p < 0.28) {
+        const t2 = inv(p, 0.15, 0.28)
+        bgR = [lerp(BG_SURFACE[0],BG_UNDERWATER[0],t2), lerp(BG_SURFACE[1],BG_UNDERWATER[1],t2), lerp(BG_SURFACE[2],BG_UNDERWATER[2],t2)]
+      } else if (p < 0.48) {
+        const t2 = inv(p, 0.28, 0.48)
+        bgR = [lerp(BG_UNDERWATER[0],BG_VOID[0],t2), lerp(BG_UNDERWATER[1],BG_VOID[1],t2), lerp(BG_UNDERWATER[2],BG_VOID[2],t2)]
+      } else if (p < 0.85) {
+        bgR = BG_VOID
+      } else {
+        const t2 = inv(p, 0.85, 1.0)
+        bgR = [lerp(BG_VOID[0],BG_WARM[0],t2), lerp(BG_VOID[1],BG_WARM[1],t2), lerp(BG_VOID[2],BG_WARM[2],t2)]
       }
-      ctx.shadowBlur = 0
-      ctx.globalCompositeOperation = 'source-over'
-      ctx.restore()
-    }
+      ctx.fillStyle = `rgb(${bgR[0]},${bgR[1]},${bgR[2]})`
+      ctx.fillRect(0, 0, W, H)
 
-    ctx.shadowBlur = 0
-    ctx.globalCompositeOperation = 'source-over'
-    ctx.restore()
-  }
+      const figX = W * 0.5 + s.camX * 0.15
+      const figY = H * 0.52
+      const figScale = 1.0
 
-  // ── Hyperspace spore particles — sparse, only ~30 bright dots against void ──
-  const camZ = lp * 6000 + t * 0.15
-  ctx.save()
-  ctx.globalCompositeOperation = 'source-over'
-  let sporeDraw = 0
-  for (let si = 0; si < scene.spores.length; si++) {
-    if (sporeDraw >= 30) break           // hard cap: max 30 visible at a time
-    const sp = scene.spores[si]
-    let pz = ((sp.z - camZ) % 6500 + 6500) % 6500
-    if (pz < 400 || pz > 4000) continue // only mid-range depth
-    const fovS = Math.min(W, H) * 0.55
-    const scale = fovS / pz
-    const px = cx + (sp.x + mox * 80) * scale
-    const py = cy + (sp.y + moy * 60) * scale
-    if (px < 0 || px > W || py < 0 || py > H) continue
-    const ps = Math.min(3, sp.size * scale)
-    const pa = sp.alpha * Math.max(0, 1 - pz / 3600) * lp * 0.5
-    if (pa < 0.05 || ps < 0.3) continue
-    ctx.beginPath()
-    ctx.arc(px, py, ps, 0, Math.PI * 2)
-    ctx.fillStyle = `hsla(${sp.hue},60%,82%,${pa})`
-    ctx.fill()
-    sporeDraw++
-  }
-  ctx.globalCompositeOperation = 'source-over'
-  ctx.restore()
+      // ── ACT 00 (0→0.15): STILL WATER SURFACE ──────────────────────────────
+      const a00 = p < 0.18 ? 1 : (1 - inv(p, 0.18, 0.26))
+      if (a00 > 0) {
+        drawStarfield(ctx, W, H, s.stars, s.t, s.camX, s.camY, a00)
+        const waterY = H * 0.56
+        drawWater(ctx, W, H, s.t, waterY, a00)
+        drawReflection(ctx, figX, figY, waterY, figScale, s.breathPhase, s.t, a00)
+        updateAndDrawAuraRings(ctx, s.auraRings, figX, figY, s.t, true)
+        drawChakraDots(ctx, figX, figY, figScale, s.t, a00 * 0.7)
+        drawCrownRays(ctx, figX, figY, figY - 28 * figScale, s.t, s.breathPhase, a00 * 0.8)
+        drawFigureBack(ctx, figX, figY, figScale, s.breathPhase, a00)
+      }
 
-  // ── Central singularity glow — small focal point only ──
-  ctx.save()
-  ctx.globalCompositeOperation = 'lighter'
-  const glowP = Math.sin(t * 0.0016) * 0.5 + 0.5
-  const cGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 30 + glowP * 20)
-  cGrad.addColorStop(0, `rgba(180,240,220,${0.9 + glowP * 0.1})`)
-  cGrad.addColorStop(0.5, `rgba(100,200,180,0.2)`)
-  cGrad.addColorStop(1, 'rgba(60,140,140,0)')
-  ctx.fillStyle = cGrad
-  ctx.fillRect(0, 0, W, H)
-  ctx.globalCompositeOperation = 'source-over'
-  ctx.restore()
-
-  // Tiny meditator at center, barely visible
-  drawFigureBack(ctx, t, cx + mox * 0.1, cy + moy * 0.1 + 16, 0.22 * (W / 1440), false)
-}
-
-// ─────────────────────────────────────────────
-// ACT 4: MANDALA VORTEX
-// ─────────────────────────────────────────────
-
-function drawAct4(
-  ctx: CanvasRenderingContext2D, t: number, lp: number,
-  W: number, H: number, mox: number, moy: number, scene: SceneData
-) {
-  const cx = W / 2 + mox * 40; const cy = H / 2 + moy * 30
-
-  // Warm amber-gold background — visually distinct from Act 3's blue-sage
-  const bg = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W, H) * 0.9)
-  bg.addColorStop(0, `hsl(${35 + lp * 10},${30 + lp * 20}%,${5 + lp * 4}%)`)
-  bg.addColorStop(0.5, 'hsl(30,20%,2%)')
-  bg.addColorStop(1, 'hsl(25,10%,1%)')
-  ctx.fillStyle = bg
-  ctx.fillRect(0, 0, W, H)
-
-  const spin = t * 0.00035 + lp * Math.PI * 0.8
-  const maxLen = Math.min(W, H) * 0.5
-
-  // Warm radial glow at center
-  ctx.save()
-  ctx.globalCompositeOperation = 'lighter'
-  const manGlow = ctx.createRadialGradient(cx, cy, 0, cx, cy, maxLen * 0.5)
-  manGlow.addColorStop(0, `rgba(200,150,60,${0.3 * lp})`)
-  manGlow.addColorStop(0.4, `rgba(160,110,40,${0.12 * lp})`)
-  manGlow.addColorStop(1, 'rgba(100,60,20,0)')
-  ctx.fillStyle = manGlow
-  ctx.fillRect(0, 0, W, H)
-  ctx.globalCompositeOperation = 'source-over'
-  ctx.restore()
-
-  ctx.save()
-  ctx.globalCompositeOperation = 'lighter'
-  for (const beam of scene.vortexBeams) {
-    const a = beam.angle + spin
-    const pulse = Math.sin(t * 0.0022 + beam.pulse) * 0.5 + 0.5
-    const len = beam.length * (0.5 + lp * 0.9) * (maxLen / 400)
-    const x1 = cx + Math.cos(a) * 20; const y1 = cy + Math.sin(a) * 20
-    const x2 = cx + Math.cos(a) * len; const y2 = cy + Math.sin(a) * len
-    // Warm amber/gold beams (hue 30-60) instead of sage green
-    const warmHue = 30 + (beam.hue - 120) * 0.3  // remap sage 120-180 → amber 30-48
-    const bGrad = ctx.createLinearGradient(x1, y1, x2, y2)
-    bGrad.addColorStop(0, `hsla(${warmHue},90%,75%,${0.7 * pulse})`)
-    bGrad.addColorStop(0.4, `hsla(${warmHue},75%,55%,${0.25 * pulse})`)
-    bGrad.addColorStop(1, `hsla(${warmHue},55%,40%,0)`)
-    ctx.beginPath()
-    ctx.moveTo(x1, y1); ctx.lineTo(x2, y2)
-    ctx.strokeStyle = bGrad
-    ctx.lineWidth = beam.width * (1.5 + pulse * 1.0)
-    ctx.shadowColor = `hsla(${warmHue},85%,65%,0.5)`
-    ctx.shadowBlur = 6
-    ctx.stroke()
-  }
-  ctx.shadowBlur = 0
-  ctx.globalCompositeOperation = 'source-over'
-  ctx.restore()
-
-  const ringCount = 7
-  for (let r = 0; r < ringCount; r++) {
-    const rRatio = (r + 1) / ringCount
-    const ringR = rRatio * maxLen * 0.8 * (0.6 + lp * 0.6)
-    const nodeCount = 6 + r * 2
-    const rotOff = spin * (r % 2 === 0 ? 1 : -1) * 0.3
-    ctx.save()
-    ctx.globalCompositeOperation = r < 3 ? 'lighter' : 'source-over'
-    ctx.beginPath(); ctx.arc(cx, cy, ringR, 0, Math.PI * 2)
-    ctx.strokeStyle = `hsla(38,65%,55%,${0.08 + lp * 0.12})`; ctx.lineWidth = 0.8; ctx.stroke()
-    for (let n = 0; n < nodeCount; n++) {
-      const na = (n / nodeCount) * Math.PI * 2 + rotOff
-      const nx = cx + Math.cos(na) * ringR; const ny = cy + Math.sin(na) * ringR
-      const nb = Math.sin(t * 0.003 + n * 1.3 + r) * 0.5 + 0.5
-      ctx.beginPath(); ctx.arc(nx, ny, 2 + r * 0.5, 0, Math.PI * 2)
-      ctx.fillStyle = `hsla(${35 + r * 5},75%,65%,${0.4 * nb * lp})`; ctx.fill()
-    }
-    ctx.globalCompositeOperation = 'source-over'
-    ctx.restore()
-  }
-
-  ctx.save()
-  ctx.globalCompositeOperation = 'lighter'
-  for (const p of scene.vortexPetals) {
-    const a = p.angle + spin * (1 + Math.abs(p.spin) * 100)
-    const d = p.dist * (0.25 + lp * 0.95) * (Math.min(W, H) / 800)
-    const px = cx + Math.cos(a) * d; const py = cy + Math.sin(a) * d
-    const pulse = Math.sin(t * 0.004 + p.angle * 3) * 0.5 + 0.5
-    const pGrad = ctx.createRadialGradient(px, py, 0, px, py, p.size)
-    const warmPetalHue = 30 + (p.hue - 125) * 0.25  // remap to warm amber range
-    pGrad.addColorStop(0, `hsla(${warmPetalHue},75%,${p.brightness}%,${0.18 + pulse * 0.12})`)
-    pGrad.addColorStop(1, `hsla(${warmPetalHue},50%,40%,0)`)
-    ctx.fillStyle = pGrad
-    ctx.beginPath(); ctx.arc(px, py, p.size, 0, Math.PI * 2); ctx.fill()
-  }
-  ctx.globalCompositeOperation = 'source-over'
-  ctx.restore()
-
-  const voidR = maxLen * 0.08 * (1 + lp * 0.5)
-  const voidGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, voidR * 2.5)
-  voidGrad.addColorStop(0, 'rgba(0,0,0,0.95)')
-  voidGrad.addColorStop(0.6, 'rgba(0,0,0,0.6)')
-  voidGrad.addColorStop(1, 'rgba(0,0,0,0)')
-  ctx.fillStyle = voidGrad
-  ctx.beginPath(); ctx.arc(cx, cy, voidR * 2.5, 0, Math.PI * 2); ctx.fill()
-
-  ctx.save()
-  ctx.globalCompositeOperation = 'lighter'
-  const rimGrad = ctx.createRadialGradient(cx, cy, voidR * 0.5, cx, cy, voidR * 1.6)
-  rimGrad.addColorStop(0, 'rgba(0,0,0,0)')
-  rimGrad.addColorStop(0.7, `rgba(210,160,70,${0.5 * lp})`)
-  rimGrad.addColorStop(1, 'rgba(180,120,40,0)')
-  ctx.fillStyle = rimGrad
-  ctx.beginPath(); ctx.arc(cx, cy, voidR * 1.6, 0, Math.PI * 2); ctx.fill()
-  ctx.globalCompositeOperation = 'source-over'
-  ctx.restore()
-}
-
-// ─────────────────────────────────────────────
-// ACT 5: GOLDEN CHAKRA BLOOM
-// ─────────────────────────────────────────────
-
-function drawAct5(
-  ctx: CanvasRenderingContext2D, t: number, lp: number,
-  W: number, H: number, mox: number, moy: number, scene: SceneData
-) {
-  const cx = W / 2 + mox * 30; const cy = H / 2 + moy * 20
-  const maxD = Math.min(W, H) * 0.5
-
-  const bg = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W, H))
-  bg.addColorStop(0, `hsl(${30 + lp * 10},${40 + lp * 20}%,${7 + lp * 5}%)`)
-  bg.addColorStop(0.7, 'hsl(25,20%,3%)')
-  bg.addColorStop(1, 'hsl(20,15%,1%)')
-  ctx.fillStyle = bg
-  ctx.fillRect(0, 0, W, H)
-
-  ctx.save()
-  ctx.globalCompositeOperation = 'lighter'
-  for (const ray of scene.bloomRays) {
-    const a = ray.angle + t * 0.00015
-    const pulse = Math.sin(t * 0.003 * ray.speed + ray.phase) * 0.5 + 0.5
-    const len = ray.len * (0.5 + lp * 1.2) * (maxD / 300) * (0.6 + pulse * 0.6)
-    const rGrad = ctx.createLinearGradient(cx, cy, cx + Math.cos(a) * len, cy + Math.sin(a) * len)
-    rGrad.addColorStop(0, `rgba(255,220,130,${0.45 * pulse})`)
-    rGrad.addColorStop(0.3, `rgba(240,170,70,${0.2 * pulse})`)
-    rGrad.addColorStop(1, 'rgba(200,100,30,0)')
-    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(a) * len, cy + Math.sin(a) * len)
-    ctx.strokeStyle = rGrad; ctx.lineWidth = ray.width * (0.8 + pulse * 1.2); ctx.stroke()
-  }
-  ctx.globalCompositeOperation = 'source-over'
-  ctx.restore()
-
-  ctx.save()
-  ctx.globalCompositeOperation = 'lighter'
-  for (const orb of scene.bloomOrbs) {
-    const a = orb.angle + t * orb.orbit
-    const d = orb.dist * (0.35 + lp * 0.9) * (maxD / 350)
-    const ox = cx + Math.cos(a) * d; const oy = cy + Math.sin(a) * d
-    const pulse = Math.sin(t * 0.004 + orb.phase) * 0.5 + 0.5
-    const oR = orb.size * (0.7 + pulse * 0.6)
-    const oGrad = ctx.createRadialGradient(ox, oy, 0, ox, oy, oR * 4)
-    oGrad.addColorStop(0, `hsla(${orb.hue},90%,75%,${0.65 * pulse})`)
-    oGrad.addColorStop(0.4, `hsla(${orb.hue},75%,60%,${0.25 * pulse})`)
-    oGrad.addColorStop(1, `hsla(${orb.hue},60%,50%,0)`)
-    ctx.fillStyle = oGrad
-    ctx.beginPath(); ctx.arc(ox, oy, oR * 4, 0, Math.PI * 2); ctx.fill()
-  }
-  ctx.globalCompositeOperation = 'source-over'
-  ctx.restore()
-
-  const coreBreath = Math.sin(t * 0.0022) * 0.5 + 0.5
-  const coreR = (70 + coreBreath * 35 + lp * 50) * (maxD / 300)
-  ctx.save()
-  ctx.globalCompositeOperation = 'lighter'
-  const coreGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, coreR * 2.5)
-  coreGrad.addColorStop(0, `rgba(255,240,180,${0.6 + coreBreath * 0.3})`)
-  coreGrad.addColorStop(0.2, `rgba(255,200,80,0.4)`)
-  coreGrad.addColorStop(0.6, `rgba(220,140,40,0.12)`)
-  coreGrad.addColorStop(1, 'rgba(180,80,20,0)')
-  ctx.fillStyle = coreGrad
-  ctx.beginPath(); ctx.arc(cx, cy, coreR * 2.5, 0, Math.PI * 2); ctx.fill()
-  ctx.globalCompositeOperation = 'source-over'
-  ctx.restore()
-
-  ctx.beginPath(); ctx.arc(cx, cy, coreR * 0.18, 0, Math.PI * 2)
-  ctx.fillStyle = `rgba(255,250,220,${0.7 + coreBreath * 0.25})`; ctx.fill()
-
-  for (let r = 0; r < 5; r++) {
-    const rR = (40 + r * 55 + lp * 30) * (maxD / 300)
-    const rA = Math.sin(t * 0.002 + r) * 0.5 + 0.5
-    ctx.beginPath(); ctx.arc(cx, cy, rR, 0, Math.PI * 2)
-    ctx.strokeStyle = `hsla(${30 + r * 8},80%,65%,${0.08 + rA * 0.12})`
-    ctx.lineWidth = 0.8; ctx.stroke()
-  }
-}
-
-// ─────────────────────────────────────────────
-// ACT 6: MOUNTAIN ARRIVAL
-// ─────────────────────────────────────────────
-
-function drawAct6(
-  ctx: CanvasRenderingContext2D, t: number, lp: number,
-  W: number, H: number, mox: number, moy: number, scene: SceneData
-) {
-  const cx = W / 2; const cy = H / 2
-  const mx = mox * 18; const my = moy * 12
-
-  const sky = ctx.createLinearGradient(0, 0, 0, H)
-  sky.addColorStop(0, `hsl(230,${30 + lp * 15}%,${5 + lp * 4}%)`)
-  sky.addColorStop(0.3, `hsl(225,25%,${3 + lp * 3}%)`)
-  sky.addColorStop(0.7, 'hsl(220,20%,4%)'); sky.addColorStop(1, 'hsl(218,18%,6%)')
-  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H)
-
-  for (const star of scene.stars) {
-    const sb = Math.sin(t * 0.001 * star.twinkleSpeed + star.phase) * 0.4 + 0.6
-    const sx = (star.x * W + mx * 0.2) % W; const sy = star.y * H * 0.65 + my * 0.1
-    ctx.beginPath(); ctx.arc(sx, sy, star.size * sb, 0, Math.PI * 2)
-    ctx.fillStyle = `rgba(${200 + star.size * 10},${210 + star.size * 5},240,${sb * 0.75})`; ctx.fill()
-    if (star.size > 1.2) {
-      ctx.save(); ctx.globalCompositeOperation = 'lighter'
-      const sg = ctx.createRadialGradient(sx, sy, 0, sx, sy, star.size * 4)
-      sg.addColorStop(0, `rgba(200,220,255,${0.15 * sb})`); sg.addColorStop(1, 'rgba(200,220,255,0)')
-      ctx.fillStyle = sg; ctx.fillRect(sx - star.size * 4, sy - star.size * 4, star.size * 8, star.size * 8)
-      ctx.globalCompositeOperation = 'source-over'; ctx.restore()
-    }
-  }
-
-  if (lp > 0.2) {
-    const auroraAlpha = Math.min(1, (lp - 0.2) / 0.4)
-    ctx.save(); ctx.globalCompositeOperation = 'lighter'
-    for (const ribbon of scene.auroraRibbons) {
-      const baseY = ribbon.y * H
-      const pulseA = Math.sin(t * 0.0008 + ribbon.phase) * 0.5 + 0.5
-      const ribbonAlpha = auroraAlpha * (0.3 + pulseA * 0.4) * 0.6
-      if (ribbonAlpha < 0.02) continue
-      const steps = 80
-      for (let layer = 0; layer < 3; layer++) {
-        ctx.beginPath()
-        for (let s = 0; s <= steps; s++) {
-          const sx = (s / steps) * W
-          const offset = Math.sin(sx / W * Math.PI * 2 * ribbon.freq + t * 0.0006 + ribbon.phase)
-          const sy = baseY + offset * ribbon.amp * H + my * 0.4 + layer * ribbon.width * H * 0.4
-          s === 0 ? ctx.moveTo(sx, sy) : ctx.lineTo(sx, sy)
+      // ── TRANSITION 00→01 (0.15→0.28): SUBMERSION ──────────────────────────
+      if (p > 0.15 && p < 0.32) {
+        const subT = inv(p, 0.15, 0.32)
+        // caustic shimmer at surface crossing (~0.18)
+        if (p > 0.16 && p < 0.22) {
+          const flash = 1 - Math.abs(inv(p, 0.16, 0.22) - 0.5) * 2
+          ctx.fillStyle = `rgba(143,181,196,${flash * 0.3})`
+          ctx.fillRect(0, 0, W, H)
         }
-        for (let s = steps; s >= 0; s--) {
-          const sx = (s / steps) * W
-          const offset = Math.sin(sx / W * Math.PI * 2 * ribbon.freq + t * 0.0006 + ribbon.phase)
-          const sy = baseY + offset * ribbon.amp * H + my * 0.4 - (layer + 1) * ribbon.width * H * 0.4
-          ctx.lineTo(sx, sy)
+        drawCaustics(ctx, W, H, s.t, subT)
+        // figure still visible but fading/receding
+        if (p < 0.26) drawFigureBack(ctx, figX, figY, figScale * (1 - inv(p,0.2,0.26)*0.15), s.breathPhase, 1 - inv(p, 0.22, 0.28))
+      }
+
+      // ── ACT 01 (0.28→0.45): THE DEEP ──────────────────────────────────────
+      const a01 = p > 0.25 && p < 0.48
+        ? inv(p, 0.25, 0.32) * (1 - inv(p, 0.44, 0.48))
+        : 0
+      if (a01 > 0) {
+        drawCaustics(ctx, W, H, s.t, a01 * 0.6)
+        const tumX = figX + s.figTumbleX * 0.3
+        const tumY = figY + Math.sin(s.figTumbleX * 0.05) * 20
+        drawFigureBack(ctx, tumX, tumY, figScale * 0.9, s.breathPhase + s.figTumbleX * 0.02, a01)
+      }
+
+      // ── BIOLUMINESCENT PARTICLES (acts 00-02) ─────────────────────────────
+      const bioAlpha = p > 0.2 ? Math.min(1, inv(p, 0.2, 0.35)) * (1 - inv(p, 0.6, 0.7)) : 0
+      updateAndDrawMist(ctx, s.bio, W, H, s.breathPhase, bioAlpha, true)
+
+      // ── MIST PARTICLES (act 00) ────────────────────────────────────────────
+      const mistAlpha = p < 0.22 ? (1 - inv(p, 0.14, 0.22)) : 0
+      updateAndDrawMist(ctx, s.mist, W, H, s.breathPhase, mistAlpha, false)
+
+      // ── CURSOR RIPPLES (acts 00-01) ────────────────────────────────────────
+      const cursorAlpha = p < 0.25 ? (1 - p / 0.25) : 0
+      drawCursorRipples(ctx, s.cursor, s.mouseX, s.mouseY, cursorAlpha * 0.8)
+
+      // ── ACT 02 (0.48→0.62): GEOMETRY AWAKENS ──────────────────────────────
+      const a02 = p > 0.46 ? inv(p, 0.46, 0.55) * (1 - inv(p, 0.6, 0.66)) : 0
+      if (a02 > 0) {
+        drawTorusRings(ctx, figX, figY, s.t, a02)
+        drawFigureBack(ctx, figX, figY, figScale, s.breathPhase, a02)
+        drawChakraDots(ctx, figX, figY, figScale, s.t, a02 * 0.8)
+        drawCrownRays(ctx, figX, figY, figY - 28, s.t, s.breathPhase, a02)
+      }
+
+      // ── ACT 03 (0.62→0.78): HYPERSPACE ────────────────────────────────────
+      const a03 = p > 0.60 ? inv(p, 0.60, 0.68) * (1 - inv(p, 0.76, 0.82)) : 0
+      if (a03 > 0) {
+        const streakProg = inv(p, 0.62, 0.78)
+        drawTorusRings(ctx, figX, figY, s.t, a03 * (1 - streakProg * 0.6))
+        drawWarpStreaks(ctx, figX, figY, W, s.t, streakProg, a03, streaksRef.current)
+        drawFigureBack(ctx, figX, figY, figScale, s.breathPhase, a03)
+        drawChakraDots(ctx, figX, figY, figScale, s.t, a03 * 0.9)
+        drawCrownRays(ctx, figX, figY, figY - 28, s.t, s.breathPhase, a03 * 1.2)
+      }
+
+      // ── TRANSITION 03→04 (0.78→0.85): THE TURN ────────────────────────────
+      const turnP = p > 0.78 ? inv(p, 0.78, 0.86) : 0
+      if (turnP > 0) {
+        // remaining streaks slow down
+        const slowStreak = 1 - turnP
+        if (slowStreak > 0) {
+          drawWarpStreaks(ctx, figX, figY, W, s.t, slowStreak * 0.4, slowStreak, streaksRef.current)
+          drawTorusRings(ctx, figX, figY, s.t, slowStreak * 0.5)
         }
-        ctx.closePath()
-        const layerAlpha = ribbonAlpha * (1 - layer * 0.3)
-        const aGrad = ctx.createLinearGradient(0, baseY - ribbon.amp * H, 0, baseY + ribbon.amp * H)
-        aGrad.addColorStop(0, `hsla(${ribbon.hue},75%,65%,0)`)
-        aGrad.addColorStop(0.5, `hsla(${ribbon.hue},75%,65%,${layerAlpha})`)
-        aGrad.addColorStop(1, `hsla(${ribbon.hue},75%,65%,0)`)
-        ctx.fillStyle = aGrad; ctx.fill()
+
+        const rotAngle = turnP * Math.PI
+        const cosA = Math.cos(rotAngle)
+        ctx.save()
+        ctx.translate(figX, figY)
+        ctx.scale(cosA, 1)
+        ctx.translate(-figX, -figY)
+        if (turnP < 0.5) {
+          drawFigureBack(ctx, figX, figY, figScale, s.breathPhase, 1)
+        } else {
+          drawFigureFront(ctx, figX, figY, figScale, s.breathPhase, 1, 0)
+        }
+        ctx.restore()
+        drawChakraDots(ctx, figX, figY, figScale, s.t, 0.7)
+        drawCrownRays(ctx, figX, figY, figY - 28, s.t, s.breathPhase, 0.9)
+        // warm pre-glow when facing camera
+        if (turnP > 0.5) {
+          const warmA = (turnP - 0.5) / 0.5 * 0.15
+          const wg = ctx.createRadialGradient(figX, figY - 28, 0, figX, figY - 28, 80)
+          wg.addColorStop(0, `rgba(255,180,60,${warmA})`); wg.addColorStop(1, 'transparent')
+          ctx.beginPath(); ctx.arc(figX, figY - 28, 80, 0, Math.PI * 2)
+          ctx.fillStyle = wg; ctx.fill()
+        }
+      }
+
+      // ── ACT 04 (0.85→0.95): THE CANDLE ────────────────────────────────────
+      const a04 = p > 0.84 && p < 0.98 ? inv(p, 0.84, 0.88) : 0
+      if (a04 > 0 && turnP <= 0) {
+        const candleT = inv(p, 0.88, 0.91)
+        const smokeT  = inv(p, 0.91, 0.95)
+        const candleY = figY + 14 - (inv(p, 0.85, 0.88)) * 18
+        drawFigureFront(ctx, figX, figY, figScale, s.breathPhase, a04, candleT)
+        drawChakraDots(ctx, figX, figY, figScale, s.t, a04 * 0.9)
+        drawCrownRays(ctx, figX, figY, figY - 28, s.t, s.breathPhase, a04 * 1.3)
+        if (candleT > 0) {
+          drawCandle(ctx, figX, candleY - 12, candleT)
+          drawFlame(ctx, figX, candleY - 28, s.t, candleT)
+        }
+        if (smokeT > 0) updateAndDrawSmoke(ctx, s.smoke, figX, candleY - 40, s.t, smokeT, 0)
+      }
+
+      // ── ACT 05 (0.95→1.0): THE PORTAL ─────────────────────────────────────
+      const a05 = p > 0.93 ? inv(p, 0.93, 0.97) : 0
+      if (a05 > 0) {
+        const candleY = figY + 14 - 18  // same position as act 04
+        const figAlpha = 1 - inv(p, 0.96, 0.995)
+        drawFigureFront(ctx, figX, figY, figScale, s.breathPhase, figAlpha, 1.0)
+        drawCandle(ctx, figX, candleY - 12, figAlpha)
+        drawFlame(ctx, figX, candleY - 28, s.t, figAlpha)
+        updateAndDrawSmoke(ctx, s.smoke, figX, candleY - 40, s.t, figAlpha, a05)
+        drawPortal(ctx, W, H, W * 0.5, H, inv(p, 0.95, 1.0))
+        // global white overlay
+        const whiteA = inv(p, 0.97, 1.0)
+        if (whiteA > 0) {
+          ctx.fillStyle = `rgba(255,255,255,${whiteA})`
+          ctx.fillRect(0, 0, W, H)
+        }
+      }
+
+      // ── FILM GRAIN (subtle) ────────────────────────────────────────────────
+      if (p < 0.95 && Math.random() < 0.15) {
+        ctx.globalAlpha = 0.015
+        for (let i = 0; i < 200; i++) {
+          const gx = Math.random() * W, gy = Math.random() * H
+          ctx.fillStyle = `rgba(255,255,255,${Math.random()})`
+          ctx.fillRect(gx, gy, 1, 1)
+        }
+        ctx.globalAlpha = 1
       }
     }
-    ctx.globalCompositeOperation = 'source-over'; ctx.restore()
-  }
 
-  drawMountainHaze(ctx, cx, cy, W, H, mx, my)
-  drawMountainRange(ctx, W, H, mx * 0.2, my * 0.15,
-    [0.06,0.55,0.20,0.47,0.38,0.52,0.55,0.44,0.72,0.50,0.88,0.46,1.06,0.60], '#111428', 0.72)
-  drawMountainRange(ctx, W, H, mx * 0.4, my * 0.25,
-    [0.04,0.62,0.16,0.53,0.27,0.59,0.40,0.49,0.52,0.46,0.62,0.52,0.76,0.55,0.90,0.48,1.06,0.65], '#171a35', 0.76)
+    frame()
 
-  const peakX = cx + mx * 0.8; const peakY = H * 0.42 + my * 0.5
-  ctx.beginPath()
-  ctx.moveTo(peakX - 280 + mx * 0.5, H * 0.76 + my * 0.3); ctx.lineTo(peakX, peakY)
-  ctx.lineTo(peakX + 280 + mx * 0.5, H * 0.76 + my * 0.3); ctx.lineTo(peakX + 340, H); ctx.lineTo(peakX - 340, H)
-  ctx.closePath()
-  const peakGrad = ctx.createLinearGradient(peakX, peakY, peakX, H * 0.76)
-  peakGrad.addColorStop(0, '#f0ecea'); peakGrad.addColorStop(0.15, '#c8c0bc')
-  peakGrad.addColorStop(0.4, '#2c3252'); peakGrad.addColorStop(1, '#1c2048')
-  ctx.fillStyle = peakGrad; ctx.fill()
-
-  ctx.save(); ctx.clip()
-  const snowCapGrad = ctx.createLinearGradient(peakX, peakY, peakX, peakY + H * 0.1)
-  snowCapGrad.addColorStop(0, 'rgba(245,243,242,0.9)'); snowCapGrad.addColorStop(0.5, 'rgba(200,195,192,0.4)')
-  snowCapGrad.addColorStop(1, 'rgba(180,178,185,0)'); ctx.fillStyle = snowCapGrad; ctx.fill(); ctx.restore()
-
-  for (const s of scene.snow) {
-    s.x = ((s.x + s.speed + Math.sin(t * 0.0008 + s.wobble) * 0.0001) % 1.2 + 1.2) % 1.2
-    s.y += s.drift + s.speed * 0.7
-    if (s.y > 1.0) { s.y = -0.05; s.x = Math.random() * 1.2 }
-    ctx.beginPath(); ctx.arc(s.x * W + mx * 0.15, s.y * H + my * 0.1, s.size, 0, Math.PI * 2)
-    ctx.fillStyle = `rgba(230,236,242,${s.alpha * Math.min(1, lp * 2)})`; ctx.fill()
-  }
-
-  const figX = peakX; const figY = peakY - 42
-  const figBreath = Math.sin(t * 0.0011) * 0.028
-  const figScale = (0.55 + lp * 0.35 + figBreath * 0.05) * (W / 1440)
-  drawFigureBack(ctx, t, figX, figY, figScale, true)
-
-  if (lp > 0.3) {
-    const aGlow = (lp - 0.3) / 0.7
-    ctx.save(); ctx.globalCompositeOperation = 'lighter'
-    const auraGrad = ctx.createRadialGradient(figX, figY - 30, 0, figX, figY - 30, 80 * figScale * 60)
-    auraGrad.addColorStop(0, `rgba(200,168,124,${0.08 * aGlow})`)
-    auraGrad.addColorStop(0.5, `rgba(127,168,130,${0.04 * aGlow})`)
-    auraGrad.addColorStop(1, 'rgba(127,168,130,0)')
-    ctx.fillStyle = auraGrad; ctx.fillRect(0, 0, W, H)
-    ctx.globalCompositeOperation = 'source-over'; ctx.restore()
-  }
-}
-
-// ─────────────────────────────────────────────
-// ACT 7: TURN + CANDLE + SMOKE → PORTAL
-// ─────────────────────────────────────────────
-
-function drawAct7(
-  ctx: CanvasRenderingContext2D, t: number, lp: number,
-  W: number, H: number, mox: number, moy: number, scene: SceneData
-) {
-  const cx = W / 2; const cy = H / 2
-  const mx = mox * 18; const my = moy * 12
-  const rotProgress = Math.min(1, lp * 2.8)
-  const candleProgress = Math.max(0, (lp - 0.35) / 0.65)
-  const smokeProgress = Math.max(0, (lp - 0.65) / 0.35)
-  const warmth = candleProgress * 0.4
-
-  const sky = ctx.createLinearGradient(0, 0, 0, H)
-  sky.addColorStop(0, `hsl(${220 + warmth * 30},${20 + warmth * 20}%,${4 + warmth * 6}%)`)
-  sky.addColorStop(1, `hsl(${215 + warmth * 20},15%,${5 + warmth * 5}%)`)
-  ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H)
-
-  const starFade = Math.max(0, 1 - candleProgress * 1.5)
-  if (starFade > 0) {
-    for (const star of scene.stars) {
-      const sb = Math.sin(t * 0.001 * star.twinkleSpeed + star.phase) * 0.4 + 0.6
-      ctx.beginPath()
-      ctx.arc((star.x * W + mx * 0.2) % W, star.y * H * 0.65, star.size * sb, 0, Math.PI * 2)
-      ctx.fillStyle = `rgba(200,210,240,${sb * 0.6 * starFade})`; ctx.fill()
+    return () => {
+      cancelAnimationFrame(s.raf)
+      window.removeEventListener('resize', onResize)
+      window.removeEventListener('mousemove', onMouse)
     }
-  }
+  }, [getScene])
 
-  drawMountainRange(ctx, W, H, mx * 0.4, my * 0.25,
-    [0.04,0.62,0.16,0.53,0.27,0.59,0.40,0.49,0.52,0.46,0.62,0.52,0.76,0.55,0.90,0.48,1.06,0.65],
-    `hsl(${215 + warmth * 15},${25 + warmth * 15}%,${8 + warmth * 8}%)`, 0.76)
+  return (
+    <>
+      <style>{`
+        @keyframes scrollPulse {
+          0%,100%{opacity:0.4;transform:scaleY(1)}
+          50%{opacity:1;transform:scaleY(1.2)}
+        }
+        @keyframes breathePulse {
+          0%,100%{opacity:0.5;transform:scale(1)}
+          50%{opacity:1;transform:scale(1.35)}
+        }
+      `}</style>
 
-  const peakX = cx + mx * 0.8; const peakY = H * 0.42 + my * 0.5
-  ctx.beginPath()
-  ctx.moveTo(peakX - 280 + mx * 0.5, H * 0.76 + my * 0.3); ctx.lineTo(peakX, peakY)
-  ctx.lineTo(peakX + 280 + mx * 0.5, H * 0.76 + my * 0.3); ctx.lineTo(peakX + 340, H); ctx.lineTo(peakX - 340, H)
-  ctx.closePath()
-  const pg = ctx.createLinearGradient(peakX, peakY, peakX, H * 0.76)
-  const warmR = Math.floor(220 + warmth * 35); const warmG = Math.floor(190 + warmth * 20)
-  pg.addColorStop(0, `rgb(${warmR},${warmG},185)`); pg.addColorStop(0.15, `rgb(${warmR - 30},${warmG - 20},170)`)
-  pg.addColorStop(0.4, `hsl(${230 + warmth * 15},${30 + warmth * 20}%,${16 + warmth * 8}%)`)
-  pg.addColorStop(1, `hsl(${228 + warmth * 15},28%,13%)`)
-  ctx.fillStyle = pg; ctx.fill()
-
-  if (candleProgress > 0) {
-    const figX = peakX; const figY = peakY - 42
-    ctx.save(); ctx.globalCompositeOperation = 'lighter'
-    const warmR2 = candleProgress * 300
-    const warmGrad = ctx.createRadialGradient(figX, figY - 5, 0, figX, figY - 5, warmR2)
-    warmGrad.addColorStop(0, `rgba(255,170,50,${0.18 * candleProgress})`)
-    warmGrad.addColorStop(0.4, `rgba(240,120,30,${0.06 * candleProgress})`)
-    warmGrad.addColorStop(1, 'rgba(200,80,20,0)')
-    ctx.fillStyle = warmGrad; ctx.fillRect(0, 0, W, H)
-    ctx.globalCompositeOperation = 'source-over'; ctx.restore()
-  }
-
-  const figX = peakX; const figY = peakY - 42
-  const scaleX = Math.cos(rotProgress * Math.PI)
-  const breath = Math.sin(t * 0.0009) * 0.022
-  const figScale = (0.8 + lp * 0.2) * (W / 1440)
-
-  ctx.save()
-  ctx.translate(figX, figY)
-  ctx.scale(scaleX * figScale, figScale * (1 + breath))
-  if (rotProgress < 0.5) {
-    drawFigureLocalBack(ctx, t, candleProgress)
-  } else {
-    drawFigureFacing(ctx, t, rotProgress, candleProgress)
-  }
-  ctx.restore()
-
-  for (const s of scene.snow) {
-    ctx.beginPath(); ctx.arc(s.x * W + mx * 0.15, s.y * H + my * 0.1, s.size * 0.7, 0, Math.PI * 2)
-    ctx.fillStyle = `rgba(230,236,242,${s.alpha * 0.35})`; ctx.fill()
-  }
-
-  if (smokeProgress > 0 && candleProgress > 0) {
-    const flameTopY = figY - 60 * figScale
-    updateSmoke(scene.smoke, t, figX, flameTopY, smokeProgress, cx)
-    ctx.save(); ctx.globalCompositeOperation = 'screen'
-    for (const sp of scene.smoke) {
-      if (!sp.active) continue
-      const sGrad = ctx.createRadialGradient(sp.x, sp.y, 0, sp.x, sp.y, sp.size)
-      sGrad.addColorStop(0, `hsla(${sp.hue},30%,85%,${sp.alpha * smokeProgress})`)
-      sGrad.addColorStop(1, `hsla(${sp.hue},20%,70%,0)`)
-      ctx.fillStyle = sGrad
-      ctx.beginPath(); ctx.arc(sp.x, sp.y, sp.size, 0, Math.PI * 2); ctx.fill()
-    }
-    ctx.globalCompositeOperation = 'source-over'; ctx.restore()
-  }
-
-  if (smokeProgress > 0.55) {
-    const pp = Math.pow((smokeProgress - 0.55) / 0.45, 0.6)
-    const portalY = H * 0.18; const pr = pp * Math.max(W, H) * 1.6
-    ctx.save(); ctx.globalCompositeOperation = 'lighter'
-    const pGrad = ctx.createRadialGradient(cx, portalY, pr * 0.05, cx, portalY, pr)
-    pGrad.addColorStop(0, `rgba(255,252,248,${0.75 * pp})`)
-    pGrad.addColorStop(0.2, `rgba(250,240,225,${0.5 * pp})`)
-    pGrad.addColorStop(0.6, `rgba(240,230,210,${0.15 * pp})`)
-    pGrad.addColorStop(1, 'rgba(240,230,210,0)')
-    ctx.fillStyle = pGrad; ctx.beginPath(); ctx.arc(cx, portalY, pr, 0, Math.PI * 2); ctx.fill()
-    ctx.globalCompositeOperation = 'source-over'; ctx.restore()
-    ctx.beginPath(); ctx.arc(cx, portalY, pr * 0.06, 0, Math.PI * 2)
-    ctx.strokeStyle = `rgba(255,250,240,${0.6 * pp})`; ctx.lineWidth = 2 * pp; ctx.stroke()
-  }
-
-  if (smokeProgress > 0.82) {
-    const wash = (smokeProgress - 0.82) / 0.18
-    ctx.fillStyle = `rgba(252,248,242,${Math.pow(wash, 0.5)})`; ctx.fillRect(0, 0, W, H)
-  }
-}
-
-// ─────────────────────────────────────────────
-// DRAW HELPERS
-// ─────────────────────────────────────────────
-
-function drawMountainHaze(ctx: CanvasRenderingContext2D, cx: number, cy: number, W: number, H: number, mx: number, my: number) {
-  const hazeGrad = ctx.createLinearGradient(0, H * 0.3, 0, H * 0.75)
-  hazeGrad.addColorStop(0, 'rgba(20,25,50,0)'); hazeGrad.addColorStop(0.5, 'rgba(18,22,45,0.12)')
-  hazeGrad.addColorStop(1, 'rgba(15,18,40,0)')
-  ctx.fillStyle = hazeGrad; ctx.fillRect(0, H * 0.3, W, H * 0.45)
-}
-
-function drawMountainRange(ctx: CanvasRenderingContext2D, W: number, H: number, mx: number, my: number, peaks: number[], color: string, baseY: number) {
-  ctx.beginPath(); ctx.moveTo(-60, H * baseY)
-  for (let i = 0; i < peaks.length; i += 2) ctx.lineTo(W * peaks[i] + mx, H * peaks[i + 1] + my)
-  ctx.lineTo(W + 60, H); ctx.lineTo(-60, H); ctx.closePath()
-  ctx.fillStyle = color; ctx.fill()
-}
-
-function drawFigureBack(ctx: CanvasRenderingContext2D, t: number, x: number, y: number, scale: number, showAura: boolean) {
-  ctx.save()
-  ctx.translate(x, y)
-  ctx.scale(scale, scale)
-
-  if (showAura) {
-    const aGrad = ctx.createRadialGradient(0, -25, 8, 0, -25, 90)
-    aGrad.addColorStop(0, `rgba(200,168,124,${0.18 + Math.sin(t * 0.002) * 0.05})`)
-    aGrad.addColorStop(0.6, 'rgba(127,168,130,0.06)'); aGrad.addColorStop(1, 'rgba(127,168,130,0)')
-    ctx.fillStyle = aGrad; ctx.beginPath(); ctx.arc(0, -25, 90, 0, Math.PI * 2); ctx.fill()
-  }
-
-  ctx.beginPath(); ctx.ellipse(0, 14, 38, 13, 0, 0, Math.PI * 2)
-  ctx.fillStyle = '#1e1e2e'; ctx.fill()
-  ctx.beginPath()
-  ctx.moveTo(-19, 10); ctx.quadraticCurveTo(-24, -12, -16, -32)
-  ctx.quadraticCurveTo(0, -43, 16, -32); ctx.quadraticCurveTo(24, -12, 19, 10)
-  ctx.closePath(); ctx.fillStyle = '#252535'; ctx.fill()
-  ctx.beginPath(); ctx.moveTo(0, -32); ctx.lineTo(0, 8)
-  ctx.strokeStyle = 'rgba(127,168,130,0.12)'; ctx.lineWidth = 1; ctx.stroke()
-  ctx.beginPath(); ctx.arc(0, -44, 12, 0, Math.PI * 2); ctx.fillStyle = '#2e2e40'; ctx.fill()
-  ctx.beginPath(); ctx.ellipse(0, -58, 5, 8, 0, 0, Math.PI * 2); ctx.fillStyle = '#1a1a2a'; ctx.fill()
-  ctx.lineCap = 'round'; ctx.strokeStyle = '#252535'; ctx.lineWidth = 6
-  ctx.beginPath(); ctx.moveTo(-17, -16); ctx.quadraticCurveTo(-34, -2, -32, 8); ctx.stroke()
-  ctx.beginPath(); ctx.moveTo(17, -16); ctx.quadraticCurveTo(34, -2, 32, 8); ctx.stroke()
-  ctx.restore()
-}
-
-function drawFigureLocalBack(ctx: CanvasRenderingContext2D, t: number, candleProgress: number) {
-  ctx.beginPath(); ctx.ellipse(0, 14, 38, 13, 0, 0, Math.PI * 2); ctx.fillStyle = '#1e1e2e'; ctx.fill()
-  ctx.beginPath()
-  ctx.moveTo(-19, 10); ctx.quadraticCurveTo(-24, -12, -16, -32)
-  ctx.quadraticCurveTo(0, -43, 16, -32); ctx.quadraticCurveTo(24, -12, 19, 10)
-  ctx.closePath(); ctx.fillStyle = '#252535'; ctx.fill()
-  ctx.beginPath(); ctx.arc(0, -44, 12, 0, Math.PI * 2); ctx.fillStyle = '#2e2e40'; ctx.fill()
-  ctx.beginPath(); ctx.ellipse(0, -58, 5, 8, 0, 0, Math.PI * 2); ctx.fillStyle = '#1a1a2a'; ctx.fill()
-  ctx.lineCap = 'round'; ctx.strokeStyle = '#252535'; ctx.lineWidth = 6
-  ctx.beginPath(); ctx.moveTo(-17, -16); ctx.quadraticCurveTo(-34, -2, -32, 8); ctx.stroke()
-  ctx.beginPath(); ctx.moveTo(17, -16); ctx.quadraticCurveTo(34, -2, 32, 8); ctx.stroke()
-  if (candleProgress > 0) drawCandleInHands(ctx, t, candleProgress, 0)
-}
-
-function drawFigureFacing(ctx: CanvasRenderingContext2D, t: number, rotProgress: number, candleProgress: number) {
-  const fa = Math.min(1, (rotProgress - 0.5) * 2.2)
-  const aGrad = ctx.createRadialGradient(0, -25, 8, 0, -25, 100)
-  aGrad.addColorStop(0, `rgba(200,168,124,${0.15 * fa + Math.sin(t * 0.0015) * 0.03})`)
-  aGrad.addColorStop(0.5, `rgba(127,168,130,${0.06 * fa})`); aGrad.addColorStop(1, 'rgba(127,168,130,0)')
-  ctx.fillStyle = aGrad; ctx.beginPath(); ctx.arc(0, -25, 100, 0, Math.PI * 2); ctx.fill()
-  ctx.beginPath(); ctx.ellipse(0, 14, 38, 13, 0, 0, Math.PI * 2); ctx.fillStyle = '#1e1e2e'; ctx.fill()
-  ctx.beginPath()
-  ctx.moveTo(-19, 10); ctx.quadraticCurveTo(-24, -12, -16, -32)
-  ctx.quadraticCurveTo(0, -43, 16, -32); ctx.quadraticCurveTo(24, -12, 19, 10)
-  ctx.closePath(); ctx.fillStyle = '#2a2840'; ctx.fill()
-  const skinTone = `rgba(${55 + fa * 30},${48 + fa * 25},${70 + fa * 10},1)`
-  ctx.beginPath(); ctx.arc(0, -44, 12, 0, Math.PI * 2); ctx.fillStyle = skinTone; ctx.fill()
-  if (fa > 0.1) {
-    ctx.save(); ctx.globalAlpha = fa
-    ctx.strokeStyle = 'rgba(30,25,45,0.8)'; ctx.lineWidth = 1.2; ctx.lineCap = 'round'
-    ctx.beginPath(); ctx.arc(-4, -45, 3.5, Math.PI * 0.1, Math.PI * 0.9, false); ctx.stroke()
-    ctx.beginPath(); ctx.arc(4, -45, 3.5, Math.PI * 0.1, Math.PI * 0.9, false); ctx.stroke()
-    ctx.beginPath(); ctx.arc(0, -40, 5, 0.08 * Math.PI, 0.92 * Math.PI, false)
-    ctx.strokeStyle = 'rgba(40,35,55,0.5)'; ctx.lineWidth = 0.9; ctx.stroke()
-    ctx.restore()
-    const bindiFade = fa * (Math.sin(t * 0.0025) * 0.35 + 0.65)
-    const bGrad = ctx.createRadialGradient(0, -49, 0, 0, -49, 7)
-    bGrad.addColorStop(0, `rgba(201,169,110,${0.9 * bindiFade})`)
-    bGrad.addColorStop(0.5, `rgba(180,140,80,${0.5 * bindiFade})`); bGrad.addColorStop(1, 'rgba(180,140,80,0)')
-    ctx.fillStyle = bGrad; ctx.beginPath(); ctx.arc(0, -49, 7, 0, Math.PI * 2); ctx.fill()
-    ctx.beginPath(); ctx.arc(0, -49, 1.8, 0, Math.PI * 2)
-    ctx.fillStyle = `rgba(220,180,120,${0.95 * bindiFade})`; ctx.fill()
-  }
-  ctx.beginPath(); ctx.ellipse(0, -58, 5, 8, 0, 0, Math.PI * 2); ctx.fillStyle = '#1a1a2a'; ctx.fill()
-  const armDrop = candleProgress * 6
-  ctx.lineCap = 'round'; ctx.strokeStyle = '#2a2840'; ctx.lineWidth = 7
-  ctx.beginPath(); ctx.moveTo(-17, -16); ctx.quadraticCurveTo(-33, -3 + armDrop, -30, 6 + armDrop); ctx.stroke()
-  ctx.beginPath(); ctx.moveTo(17, -16); ctx.quadraticCurveTo(33, -3 + armDrop, 30, 6 + armDrop); ctx.stroke()
-  if (candleProgress > 0) drawCandleInHands(ctx, t, candleProgress, armDrop)
-}
-
-function drawCandleInHands(ctx: CanvasRenderingContext2D, t: number, candleProgress: number, armDrop: number) {
-  const ca = Math.min(1, candleProgress * 3)
-  const candleY = 5 + armDrop
-  ctx.fillStyle = `rgba(235,225,205,${ca})`
-  ctx.beginPath(); ctx.rect(-3.5, candleY - 2, 7, 20); ctx.fill()
-  ctx.strokeStyle = `rgba(50,40,35,${ca})`; ctx.lineWidth = 1; ctx.lineCap = 'round'
-  ctx.beginPath(); ctx.moveTo(0, candleY - 2); ctx.lineTo(0, candleY - 6); ctx.stroke()
-  const ff = Math.sin(t * 0.009) * 1.8 + Math.sin(t * 0.022) * 1.2 + Math.sin(t * 0.037) * 0.8
-  const fh = 8 + candleProgress * 10 + Math.sin(t * 0.005) * 2
-  ctx.beginPath()
-  ctx.moveTo(-3.5 + ff * 0.25, candleY - 6)
-  ctx.quadraticCurveTo(-4.5 + ff * 0.4, candleY - 6 - fh * 0.55, ff * 0.25, candleY - 6 - fh)
-  ctx.quadraticCurveTo(4.5 + ff * 0.4, candleY - 6 - fh * 0.55, 3.5 + ff * 0.25, candleY - 6)
-  ctx.closePath(); ctx.fillStyle = `rgba(255,140,30,${0.65 * ca})`; ctx.fill()
-  ctx.beginPath()
-  ctx.moveTo(-2 + ff * 0.15, candleY - 6)
-  ctx.quadraticCurveTo(-2.5 + ff * 0.25, candleY - 6 - fh * 0.45, ff * 0.12, candleY - 6 - fh * 0.75)
-  ctx.quadraticCurveTo(2.5 + ff * 0.25, candleY - 6 - fh * 0.45, 2 + ff * 0.15, candleY - 6)
-  ctx.closePath(); ctx.fillStyle = `rgba(255,245,160,${0.85 * ca})`; ctx.fill()
-  ctx.save(); ctx.globalCompositeOperation = 'lighter'
-  const fGrad = ctx.createRadialGradient(ff * 0.25, candleY - 6 - fh * 0.5, 0, ff * 0.1, candleY - 6 - fh * 0.5, 40)
-  fGrad.addColorStop(0, `rgba(255,210,80,${0.35 * ca})`)
-  fGrad.addColorStop(0.5, `rgba(255,150,40,${0.12 * ca})`); fGrad.addColorStop(1, 'rgba(255,100,20,0)')
-  ctx.fillStyle = fGrad; ctx.beginPath(); ctx.arc(ff * 0.25, candleY - 6 - fh * 0.5, 40, 0, Math.PI * 2); ctx.fill()
-  ctx.globalCompositeOperation = 'source-over'; ctx.restore()
-}
-
-function updateSmoke(smoke: SmokeParticle[], t: number, figX: number, flameY: number, smokeProgress: number, portalX: number) {
-  for (const sp of smoke) {
-    if (!sp.active && Math.random() < 0.18 * smokeProgress) {
-      sp.active = true; sp.x = figX + (Math.random() - 0.5) * 5; sp.y = flameY
-      sp.vx = (Math.random() - 0.5) * 0.7; sp.vy = -1.2 - Math.random() * 1.8
-      sp.size = 2; sp.life = 0; sp.alpha = 0.45; sp.hue = 200 + Math.random() * 40
-    }
-    if (sp.active) {
-      sp.life++
-      const curl = Math.sin(sp.x * 0.015 + t * 0.003 + sp.seed) * 0.8 + Math.cos(sp.y * 0.012 + t * 0.0025) * 0.5
-      sp.vx += curl * 0.06; sp.vy *= 0.994; sp.vx *= 0.986
-      if (smokeProgress > 0.45) {
-        const pull = (smokeProgress - 0.45) / 0.55
-        const toX = portalX - sp.x; const toY = flameY - 120 - sp.y
-        const d = Math.sqrt(toX * toX + toY * toY)
-        if (d > 1) { sp.vx += (toX / d) * 0.06 * pull; sp.vy += (toY / d) * 0.06 * pull }
-      }
-      sp.x += sp.vx; sp.y += sp.vy; sp.size += 0.12
-      sp.alpha = Math.max(0, 0.45 * (1 - sp.life / sp.maxLife))
-      if (sp.life > sp.maxLife) sp.active = false
-    }
-  }
+      {/* 700vh sticky scroll container */}
+      <div ref={containerRef} style={{ height:'700vh', position:'relative' }}>
+        <div style={{ position:'sticky', top:0, height:'100vh', overflow:'hidden' }}>
+          <canvas
+            ref={canvasRef}
+            style={{ position:'absolute', inset:0, width:'100%', height:'100%' }}
+          />
+          <ChapterOverlay progress={progress} />
+          <ScrollHint visible={showScrollHint} />
+          <ProgressRing progress={progress} />
+          <BreatheBadge visible={showBadge} />
+        </div>
+      </div>
+    </>
+  )
 }

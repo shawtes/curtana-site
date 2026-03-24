@@ -13,7 +13,7 @@
  * Opacity prop: driven by scroll (1 → 0 as submersion begins).
  */
 
-import { useRef, useMemo } from 'react'
+import { useRef, useMemo, useEffect } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 
@@ -93,7 +93,7 @@ function BrightStars({ opacity }: { opacity: number }) {
   const matRef = useRef<THREE.ShaderMaterial>(null)
 
   const { geo, mat } = useMemo(() => {
-    const N         = 2000
+    const N         = 1200
     const positions = new Float32Array(N * 3)
     const colors    = new Float32Array(N * 3)
     const sizes     = new Float32Array(N)
@@ -136,6 +136,10 @@ function BrightStars({ opacity }: { opacity: number }) {
     return { geo: g, mat: m }
   }, [])
 
+  useEffect(() => {
+    return () => { geo.dispose(); mat.dispose() }
+  }, [geo, mat])
+
   useFrame(({ clock }) => {
     mat.uniforms.uTime.value    = clock.elapsedTime
     mat.uniforms.uOpacity.value = opacity
@@ -150,7 +154,7 @@ function FieldStars({ opacity, mobile }: { opacity: number; mobile: boolean }) {
   const matRef = useRef<THREE.PointsMaterial>(null)
 
   const geo = useMemo(() => {
-    const N = mobile ? 3000 : 8000
+    const N = mobile ? 2000 : 5000
     const positions = new Float32Array(N * 3)
     for (let i = 0; i < N; i++) {
       const [x, y, z] = hemispherePt(82 + Math.random() * 12)
@@ -162,6 +166,10 @@ function FieldStars({ opacity, mobile }: { opacity: number; mobile: boolean }) {
     g.setAttribute('position', new THREE.BufferAttribute(positions, 3))
     return g
   }, [mobile])
+
+  useEffect(() => {
+    return () => { geo.dispose() }
+  }, [geo])
 
   useFrame(() => {
     if (matRef.current) matRef.current.opacity = opacity * 0.5
@@ -189,16 +197,15 @@ function MilkyWay({ opacity, mobile }: { opacity: number; mobile: boolean }) {
   const matRef = useRef<THREE.PointsMaterial>(null)
 
   const geo = useMemo(() => {
-    const N = mobile ? 5000 : 15000
+    const N = mobile ? 3000 : 8000
     const positions = new Float32Array(N * 3)
 
     for (let i = 0; i < N; i++) {
       const theta = Math.random() * Math.PI * 2
-      // Gaussian concentration toward galactic equator
       const lat    = (Math.random() - 0.5) * Math.PI
       const inBand = Math.random() < Math.exp(-lat * lat / 0.025)
       const phi    = inBand
-        ? (Math.random() * 0.18 + 0.42) * Math.PI  // near galactic plane
+        ? (Math.random() * 0.18 + 0.42) * Math.PI
         : Math.acos(2 * Math.random() - 1)
 
       const r = 72 + Math.random() * 18
@@ -211,6 +218,10 @@ function MilkyWay({ opacity, mobile }: { opacity: number; mobile: boolean }) {
     g.setAttribute('position', new THREE.BufferAttribute(positions, 3))
     return g
   }, [mobile])
+
+  useEffect(() => {
+    return () => { geo.dispose() }
+  }, [geo])
 
   useFrame(() => {
     if (matRef.current) matRef.current.opacity = opacity * 0.32
@@ -241,7 +252,7 @@ interface Props {
 
 export default function StarField({ opacity = 1, mobile = false }: Props) {
   return (
-    <group>
+    <group userData={{ hideFromWaterReflection: true }}>
       <BrightStars opacity={opacity} />
       <FieldStars  opacity={opacity} mobile={mobile} />
       <MilkyWay    opacity={opacity} mobile={mobile} />

@@ -1,6 +1,7 @@
 import ScrollReveal from '@/components/ui/ScrollReveal'
 import DiscoveryCallCard from '@/components/sections/DiscoveryCallCard'
 import BookServices from '@/components/sections/BookServices'
+import InnerPageShell from '@/components/layout/InnerPageShell'
 
 export const metadata = {
   title: 'Book — Flow With Curtana',
@@ -10,6 +11,7 @@ export const metadata = {
 
 export default function BookPage() {
   return (
+    <InnerPageShell>
     <main style={{ paddingTop: 72 }}>
       {/* ── HEADER ── */}
       <section
@@ -116,5 +118,6 @@ export default function BookPage() {
         <BookServices />
       </section>
     </main>
+    </InnerPageShell>
   )
 }

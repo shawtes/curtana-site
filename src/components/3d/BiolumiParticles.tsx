@@ -9,7 +9,7 @@
  * Count adapts to device tier: 600 (tier 2+) / 200 (tier 1) / 60 (tier 0).
  */
 
-import { useRef, useMemo } from 'react'
+import { useRef, useMemo, useEffect } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 
@@ -64,6 +64,10 @@ export default function BiolumiParticles({ opacity, count = 400 }: Props) {
   const basePos = useMemo(() => {
     const attr = geometry.attributes.position as THREE.BufferAttribute
     return (attr.array as Float32Array).slice()
+  }, [geometry])
+
+  useEffect(() => {
+    return () => { geometry.dispose() }
   }, [geometry])
 
   useFrame(({ clock }) => {

@@ -1,575 +1,712 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import Link from 'next/link'
+import { useState } from 'react'
 import { motion } from 'framer-motion'
+import { useForm } from 'react-hook-form'
 import ScrollReveal from '@/components/ui/ScrollReveal'
-import { useScrollSection } from '@/hooks/useScrollSection'
-import { useScrollProgress } from '@/hooks/useScrollProgress'
+import RevealImage from '@/components/ui/RevealImage'
+import VerticalThreadLine from '@/components/ui/VerticalThreadLine'
+import SplitHeading from '@/components/ui/SplitHeading'
+import LoadingScreen from '@/components/ui/LoadingScreen'
+
+// Materialize-in animation for sections that appear in front of the character
+const sectionVariants = {
+  hidden: {
+    opacity:   0,
+    y:         28,
+    boxShadow: '0 0 80px rgba(127,168,130,0.18), inset 0 1px 0 rgba(127,168,130,0.25)',
+  },
+  visible: {
+    opacity:   1,
+    y:         0,
+    boxShadow: '0 0 0px rgba(127,168,130,0), inset 0 1px 0 rgba(127,168,130,0.06)',
+  },
+}
+const sectionTransition = { duration: 1.3, ease: [0.16, 1, 0.3, 1] as [number,number,number,number] }
 
 const SubmersionJourney = dynamic(() => import('@/components/3d/SubmersionJourney'), {
   ssr:     false,
   loading: () => (
-    <div style={{ height: '800vh', position: 'relative' }}>
+    <div style={{ height: '480vh', position: 'relative' }}>
       <div style={{ position: 'sticky', top: 0, height: '100vh', background: 'var(--bg)' }} />
     </div>
   ),
 })
 
-const AuraStage = dynamic(() => import('@/components/3d/AuraStage'), {
-  ssr:     false,
-  loading: () => null,
-})
+// ── Data ────────────────────────────────────────────────────────────────────
 
-const AuraChapters = dynamic(() => import('@/components/3d/AuraChapters'), {
-  ssr:     false,
-  loading: () => null,
-})
-
-const FEATURED_SERVICES = [
+const SERVICES = [
   {
-    tag: 'one on one',
-    title: 'Private Flow',
-    subtitle: 'Your practice, your pace.',
-    duration: '60 or 90 min · in-person or virtual',
+    tag: 'psychological health',
+    title: 'Psychological Health',
+    subtitle: 'Less suffering. More happiness.',
+    duration: '1:1 sessions \u00b7 in-person or virtual',
     description:
-      'One-on-one sessions built entirely around you. We\'ll begin with a conversation, then move into a practice designed for your body, your goals, and how you\'re feeling today.',
-    href: '/services',
-    delay: 100,
+      'Experience less suffering and more happiness through psychological exercise and nutrition programs. Curtana works with you to identify the root causes of your pain points and build a personalised plan for lasting change.',
+    includes: [
+      'Personalised psychological assessment',
+      'Exercise & nutrition integration',
+      'Weekly 1:1 sessions',
+      'Between-session support',
+    ],
+    gradient: 'linear-gradient(135deg, #1a2e1c 0%, #0d1210 60%, #0a1510 100%)',
+    // Person in stillness, low light, forest — matches psychological depth
+    src: 'https://images.unsplash.com/photo-1506126613408-eca07ce68773?auto=format&fit=crop&w=900&q=80',
+    alt: 'Person in quiet contemplation by water',
   },
   {
-    tag: 'group',
-    title: 'Collective Breath',
-    subtitle: 'Move together. Breathe together.',
-    duration: '60 min · in-person or virtual',
+    tag: 'social skills',
+    title: 'Social Skills',
+    subtitle: 'Confidence in every room.',
+    duration: '1:1 or group \u00b7 in-person or virtual',
     description:
-      'There\'s something powerful about breathing in sync with others. Group classes offer a shared experience of movement, breath, and community — welcoming to all levels.',
-    href: '/services',
-    delay: 200,
+      'Improve confidence and communication skills in romantic and platonic relationships. Through ethical influence techniques and immersive social practice, you’ll move through the world with ease, warmth, and genuine presence.',
+    includes: [
+      'Confidence & communication frameworks',
+      'Ethical flirting & attraction dynamics',
+      'Real-world social practice',
+      'Ongoing coaching & feedback',
+    ],
+    gradient: 'linear-gradient(135deg, #1c201a 0%, #0d0f0e 55%, #101a14 100%)',
+    // Two people, warm candlelit conversation — intimacy and connection
+    src: 'https://images.unsplash.com/photo-1529156069898-49953e39b3ac?auto=format&fit=crop&w=900&q=80',
+    alt: 'Two people in warm intimate conversation',
   },
   {
-    tag: 'breathwork',
-    title: 'The Breath Work',
-    subtitle: 'Where transformation begins.',
-    duration: '75 min · in-person or virtual',
+    tag: 'professional referrals',
+    title: 'Professional Referrals',
+    subtitle: 'The right expert. Every time.',
+    duration: 'Consultation \u00b7 confidential',
     description:
-      'Breathwork is one of the most powerful tools for nervous system regulation, emotional release, and mental clarity. Sessions blend guided breathing with grounding movement.',
-    href: '/services',
-    delay: 300,
+      'Private solutions to professional problems through a curated network of trusted specialists across industries. Whether legal, financial, medical, or creative — Curtana connects you with exactly the right person, quietly and efficiently.',
+    includes: [
+      'Discreet needs assessment',
+      'Curated specialist matching',
+      'Warm introduction & context briefing',
+      'Follow-through support',
+    ],
+    gradient: 'linear-gradient(135deg, #12181a 0%, #0d0f0e 55%, #0a1214 100%)',
+    // Minimal, clean interior — discretion and precision
+    src: 'https://images.unsplash.com/photo-1497366216548-37526070297c?auto=format&fit=crop&w=900&q=80',
+    alt: 'Minimal clean professional interior',
+  },
+  {
+    tag: 'corporate',
+    title: 'Corporate Events',
+    subtitle: 'Bring clarity to your team.',
+    duration: 'Half-day or full-day \u00b7 in-person',
+    description:
+      'Workshops and immersive experiences for teams — from communication and conflict resolution to group psychological health sessions. Curtana works with leadership to create bespoke programmes that actually move the needle.',
+    includes: [],
+    gradient: 'linear-gradient(135deg, #1e1a14 0%, #0d1210 55%, #181210 100%)',
+    // People gathered in purposeful session, warm overhead light
+    src: 'https://images.unsplash.com/photo-1515187029135-18ee286d815b?auto=format&fit=crop&w=900&q=80',
+    alt: 'People engaged in a workshop session',
+  },
+  {
+    tag: 'press',
+    title: 'Press & Speaking',
+    subtitle: 'Thoughtful. On-brand. Memorable.',
+    duration: 'Flexible \u00b7 in-person or virtual',
+    description:
+      'For press enquiries, podcast appearances, panel discussions, and keynote opportunities. Curtana speaks on psychological health, social intelligence, and the private landscape of personal transformation.',
+    includes: [],
+    gradient: 'linear-gradient(135deg, #1a1e1c 0%, #0d1210 55%, #101810 100%)',
+    // Speaker commanding a room, dramatic stage light
+    src: 'https://images.unsplash.com/photo-1475721027785-f74eccf877e2?auto=format&fit=crop&w=900&q=80',
+    alt: 'Speaker on stage under dramatic light',
   },
 ]
 
-const TESTIMONIALS = [
-  {
-    quote:
-      'Working with Curtana changed how I relate to my body. For the first time in years, I actually enjoy moving.',
-    name: 'Sarah M.',
-    role: 'Private Flow client',
-    delay: 0,
-  },
-  {
-    quote:
-      'The breathwork session was unlike anything I\'d experienced. I left feeling like I\'d been reset.',
-    name: 'James K.',
-    role: 'Breathwork session',
-    delay: 120,
-  },
-  {
-    quote:
-      'I came for the yoga. I stayed for the community and the way Curtana holds space. Truly transformative.',
-    name: 'Priya R.',
-    role: 'Group class member',
-    delay: 240,
-  },
+const INQUIRY_TYPES = [
+  { value: 'services',         label: 'Services' },
+  { value: 'corporate-events', label: 'Corporate events' },
+  { value: 'group-events',     label: 'Group events' },
+  { value: 'press',            label: 'Press opportunity' },
 ]
 
-const BREATH_EASE_TUPLE: [number, number, number, number] = [0.16, 1, 0.3, 1]
-
-// Fades a content panel in/out based on progress window
-function inRange(p: number, from: number, to: number, fadePad = 0.03) {
-  if (p < from - fadePad || p > to + fadePad) return 0
-  if (p < from) return (p - (from - fadePad)) / fadePad
-  if (p > to) return 1 - (p - to) / fadePad
-  return 1
+const labelStyle = {
+  display: 'block' as const,
+  fontFamily: 'var(--font-body), sans-serif',
+  fontSize: '11px',
+  letterSpacing: '2px',
+  textTransform: 'uppercase' as const,
+  color: 'var(--muted)',
+  marginBottom: 8,
 }
 
-export default function HomePage() {
-  // Aura content journey — 500vh scroll experience
-  const { containerRef: contentRef, progress: cp } = useScrollProgress()
+const inputStyle = {
+  width: '100%',
+  background: 'var(--surface)',
+  border: '1px solid var(--border)',
+  borderRadius: 12,
+  padding: '14px 18px',
+  fontFamily: 'var(--font-body), sans-serif',
+  fontSize: '15px',
+  fontWeight: 300,
+  color: 'var(--text)',
+  outline: 'none',
+  transition: 'border-color 300ms ease, box-shadow 300ms ease',
+  appearance: 'none' as const,
+  WebkitAppearance: 'none' as const,
+  boxSizing: 'border-box' as const,
+}
 
-  // CTA portal ring
-  const { ref: ctaRef, enterProgress: ctaProgress, inView: ctaInView } =
-    useScrollSection()
+interface ContactFormData {
+  firstName: string
+  lastName:  string
+  email:     string
+  subject:   string
+  message:   string
+}
+
+// ── Page ────────────────────────────────────────────────────────────────────
+
+export default function HomePage() {
+  const [loaderDone, setLoaderDone] = useState(false)
+  const [submitted, setSubmitted]   = useState(false)
+  const [focused,   setFocused]     = useState<string | null>(null)
+  const [checked,   setChecked]     = useState<string[]>([])
+
+  const { register, handleSubmit, formState: { errors, isSubmitting }, reset } =
+    useForm<ContactFormData>()
+
+  const onSubmit = async (data: ContactFormData) => {
+    await new Promise(r => setTimeout(r, 800))
+    console.log('Form submitted:', { ...data, inquiries: checked })
+    setSubmitted(true)
+    reset()
+    setChecked([])
+  }
+
+  const getFocusStyle  = (name: string) =>
+    focused === name ? { borderColor: 'var(--sage)', boxShadow: '0 0 0 3px var(--sage-glow)' } : {}
+  const getErrorStyle  = (has: boolean) =>
+    has ? { borderColor: 'rgba(201,169,110,0.6)' } : {}
+  const toggleInquiry  = (val: string) =>
+    setChecked(prev => prev.includes(val) ? prev.filter(v => v !== val) : [...prev, val])
 
   return (
-    <main>
-      {/* ── SUBMERSION JOURNEY — 800vh cinematic hero ── */}
+    <>
+    {!loaderDone && <LoadingScreen onComplete={() => setLoaderDone(true)} />}
+    <main style={{ position: 'relative', zIndex: 1 }}>
+
+      {/* ══ 3D HERO ══ */}
       <SubmersionJourney />
 
+      {/* ══ CONTENT — relative wrapper so VerticalThreadLine can span all sections ══ */}
+      <div style={{ position: 'relative', zIndex: 1 }}>
+        <VerticalThreadLine />
 
-      {/* ══════════════════════════════════════════════════════════════════════
-          AURA CONTENT JOURNEY — 500vh sticky container
-          The stage: Curtana's aura glows out and transforms into each section.
-          Camera follows her deeper as you scroll.
-          ══════════════════════════════════════════════════════════════════════ */}
-      <div
-        ref={contentRef}
-        style={{ height: '500vh', position: 'relative' }}
+      {/* ══════════════════════════════════════════════════════════
+          ABOUT
+      ══════════════════════════════════════════════════════════ */}
+      <motion.div
+        variants={sectionVariants}
+        initial="hidden"
+        whileInView="visible"
+        viewport={{ once: true, margin: '-60px' }}
+        transition={sectionTransition}
+        style={{ background: 'rgba(13,15,14,0.72)', position: 'relative', zIndex: 4 }}
       >
-        <div
-          style={{
-            position: 'sticky',
-            top: 0,
-            height: '100vh',
-            background: 'var(--bg)',
-            overflow: 'hidden',
-          }}
-        >
-          {/* ── AURA STAGE CANVAS ── */}
-          <AuraStage scrollProgress={cp} />
-
-          {/* ── AURA CHAPTER TEXT OVERLAYS (glass + animated words) ── */}
-          <AuraChapters progress={cp} />
-
-          {/* ── SECTION CONTENT PANELS ── */}
-
-          {/* ── ABOUT PANEL ── visible 0.02 → 0.27 ── */}
-          <motion.div
-            animate={{ opacity: inRange(cp, 0.02, 0.27) }}
-            transition={{ duration: 0.6 }}
-            style={{
-              position: 'absolute',
-              bottom: 'clamp(48px, 8vh, 80px)',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              width: 'min(640px, 90vw)',
-              pointerEvents: cp >= 0.02 && cp <= 0.27 ? 'auto' : 'none',
-            }}
-          >
-            <div
-              style={{
-                background: 'rgba(13,15,14,0.6)',
-                backdropFilter: 'blur(20px) saturate(1.3)',
-                WebkitBackdropFilter: 'blur(20px) saturate(1.3)',
-                border: '1px solid rgba(127,168,130,0.12)',
-                borderRadius: 18,
-                padding: 'clamp(20px, 3vw, 36px)',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 16,
-              }}
-            >
-              <p
-                style={{
-                  fontFamily: 'var(--font-body), sans-serif',
-                  fontSize: 'clamp(14px, 1.6vw, 16px)',
-                  fontWeight: 300,
-                  color: 'var(--text)',
-                  lineHeight: 1.85,
-                  margin: 0,
-                }}
-              >
-                I'm Curtana — a yoga teacher, breathwork guide, and wellness coach.
-                My practice is rooted in the belief that your body already knows the way.
-                I'm just here to help you listen.
-              </p>
-              <Link
-                href="/about"
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  fontFamily: 'var(--font-body), sans-serif',
-                  fontSize: '12px',
-                  letterSpacing: '2.5px',
-                  textTransform: 'uppercase',
-                  color: 'var(--sage)',
-                  textDecoration: 'none',
-                  alignSelf: 'flex-start',
-                }}
-              >
-                Learn more →
-              </Link>
-            </div>
-          </motion.div>
-
-          {/* ── SERVICES PANEL ── visible 0.30 → 0.57 ── */}
-          <motion.div
-            animate={{ opacity: inRange(cp, 0.30, 0.57) }}
-            transition={{ duration: 0.6 }}
-            style={{
-              position: 'absolute',
-              bottom: 'clamp(40px, 6vh, 64px)',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              width: 'min(900px, 94vw)',
-              pointerEvents: cp >= 0.30 && cp <= 0.57 ? 'auto' : 'none',
-            }}
-          >
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(3, 1fr)',
-                gap: 'clamp(10px, 1.5vw, 18px)',
-              }}
-            >
-              {FEATURED_SERVICES.map((service, i) => (
-                <motion.div
-                  key={service.title}
-                  animate={{ opacity: inRange(cp, 0.30, 0.57), y: inRange(cp, 0.30, 0.57) === 0 ? 20 : 0 }}
-                  transition={{ duration: 0.8, delay: i * 0.1, ease: BREATH_EASE_TUPLE }}
-                  style={{
-                    background: 'rgba(13,15,14,0.65)',
-                    backdropFilter: 'blur(20px) saturate(1.3)',
-                    WebkitBackdropFilter: 'blur(20px) saturate(1.3)',
-                    border: '1px solid rgba(127,168,130,0.13)',
-                    borderRadius: 16,
-                    padding: 'clamp(16px, 2.5vw, 28px)',
-                  }}
-                >
-                  <p
-                    style={{
-                      fontFamily: 'var(--font-body), sans-serif',
-                      fontSize: '10px',
-                      letterSpacing: '3px',
-                      textTransform: 'uppercase',
-                      color: 'var(--sage)',
-                      marginBottom: 10,
-                    }}
-                  >
-                    {service.tag}
-                  </p>
-                  <h3
-                    style={{
-                      fontFamily: "'Cormorant Garamond', Georgia, serif",
-                      fontStyle: 'italic',
-                      fontWeight: 400,
-                      fontSize: 'clamp(18px, 2vw, 24px)',
-                      color: 'var(--cream)',
-                      marginBottom: 8,
-                    }}
-                  >
-                    {service.title}
-                  </h3>
-                  <p
-                    style={{
-                      fontFamily: 'var(--font-body), sans-serif',
-                      fontSize: '10px',
-                      color: 'var(--muted)',
-                      letterSpacing: '1.5px',
-                      marginBottom: 12,
-                    }}
-                  >
-                    {service.duration}
-                  </p>
-                  <p
-                    style={{
-                      fontFamily: 'var(--font-body), sans-serif',
-                      fontSize: 'clamp(12px, 1.3vw, 14px)',
-                      fontWeight: 300,
-                      color: 'var(--text)',
-                      lineHeight: 1.75,
-                      margin: 0,
-                    }}
-                  >
-                    {service.description}
-                  </p>
-                </motion.div>
-              ))}
-            </div>
-          </motion.div>
-
-          {/* ── TESTIMONIALS PANEL ── visible 0.60 → 0.84 ── */}
-          <motion.div
-            animate={{ opacity: inRange(cp, 0.60, 0.84) }}
-            transition={{ duration: 0.6 }}
-            style={{
-              position: 'absolute',
-              bottom: 'clamp(40px, 6vh, 64px)',
-              left: '50%',
-              transform: 'translateX(-50%)',
-              width: 'min(880px, 94vw)',
-              pointerEvents: cp >= 0.60 && cp <= 0.84 ? 'auto' : 'none',
-            }}
-          >
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(3, 1fr)',
-                gap: 'clamp(10px, 1.5vw, 18px)',
-              }}
-            >
-              {TESTIMONIALS.map((t, i) => (
-                <motion.div
-                  key={t.name}
-                  animate={{
-                    opacity: inRange(cp, 0.60, 0.84),
-                    y: inRange(cp, 0.60, 0.84) === 0 ? 20 : 0,
-                  }}
-                  transition={{ duration: 0.9, delay: i * 0.12, ease: BREATH_EASE_TUPLE }}
-                  style={{
-                    background: 'rgba(20,24,21,0.7)',
-                    backdropFilter: 'blur(20px) saturate(1.3)',
-                    WebkitBackdropFilter: 'blur(20px) saturate(1.3)',
-                    border: '1px solid rgba(127,168,130,0.1)',
-                    borderRadius: 16,
-                    padding: 'clamp(18px, 2.5vw, 32px)',
-                  }}
-                >
-                  <p
-                    style={{
-                      fontFamily: "'Cormorant Garamond', Georgia, serif",
-                      fontStyle: 'italic',
-                      fontWeight: 300,
-                      fontSize: 'clamp(14px, 1.6vw, 18px)',
-                      color: 'var(--cream)',
-                      lineHeight: 1.65,
-                      marginBottom: 20,
-                    }}
-                  >
-                    &ldquo;{t.quote}&rdquo;
-                  </p>
-                  <div>
-                    <p
-                      style={{
-                        fontFamily: 'var(--font-body), sans-serif',
-                        fontSize: '13px',
-                        fontWeight: 400,
-                        color: 'var(--sand)',
-                        marginBottom: 2,
-                      }}
-                    >
-                      {t.name}
-                    </p>
-                    <p
-                      style={{
-                        fontFamily: 'var(--font-body), sans-serif',
-                        fontSize: '11px',
-                        color: 'var(--muted)',
-                        letterSpacing: '1.5px',
-                      }}
-                    >
-                      {t.role}
-                    </p>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          </motion.div>
-
-          {/* ── CTA PANEL ── visible 0.87 → 1.0 ── */}
-          <motion.div
-            animate={{ opacity: inRange(cp, 0.87, 1.0) }}
-            transition={{ duration: 0.8 }}
-            style={{
-              position: 'absolute',
-              top: '50%',
-              left: '50%',
-              transform: 'translate(-50%, -50%)',
-              textAlign: 'center',
-              pointerEvents: cp >= 0.87 ? 'auto' : 'none',
-            }}
-          >
-            <motion.p
-              animate={{ opacity: inRange(cp, 0.87, 1.0) > 0.3 ? 1 : 0, y: inRange(cp, 0.87, 1.0) > 0.3 ? 0 : 12 }}
-              transition={{ duration: 1.0, delay: 0.3 }}
-              style={{
-                fontFamily: 'var(--font-body), sans-serif',
-                fontSize: '13px',
-                fontWeight: 300,
-                color: 'var(--muted)',
-                lineHeight: 1.85,
-                marginBottom: 36,
-                maxWidth: 440,
-              }}
-            >
-              Sessions available online and in-person.
-              <br />Your practice begins with one breath.
-            </motion.p>
-            <motion.div
-              animate={{ opacity: inRange(cp, 0.87, 1.0) > 0.5 ? 1 : 0, scale: inRange(cp, 0.87, 1.0) > 0.5 ? 1 : 0.95 }}
-              transition={{ duration: 0.9, delay: 0.5 }}
-            >
-              <Link
-                href="/book"
-                style={{
-                  display: 'inline-block',
-                  fontFamily: 'var(--font-body), sans-serif',
-                  fontSize: '13px',
-                  fontWeight: 400,
-                  letterSpacing: '2.5px',
-                  textTransform: 'uppercase',
-                  color: 'var(--bg)',
-                  background: 'var(--sage)',
-                  padding: '16px 52px',
-                  borderRadius: '100px',
-                  textDecoration: 'none',
-                }}
-              >
-                Book a session →
-              </Link>
-            </motion.div>
-          </motion.div>
-
-          {/* Scroll position indicator dots */}
-          <div
-            style={{
-              position: 'absolute',
-              right: 24,
-              top: '50%',
-              transform: 'translateY(-50%)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 10,
-              zIndex: 30,
-            }}
-          >
-            {(['about', 'services', 'testimonials', 'cta'] as const).map((phase, i) => {
-              const ranges = [[0.02, 0.27], [0.30, 0.57], [0.60, 0.84], [0.87, 1.0]]
-              const [from, to] = ranges[i]
-              const active = cp >= from && cp <= to
-              return (
-                <div
-                  key={phase}
-                  style={{
-                    width: active ? 6 : 4,
-                    height: active ? 20 : 4,
-                    borderRadius: 100,
-                    background: active ? 'var(--sage)' : 'rgba(127,168,130,0.25)',
-                    transition: 'all 600ms cubic-bezier(0.16,1,0.3,1)',
-                  }}
-                />
-              )
-            })}
-          </div>
-        </div>
-      </div>{/* /500vh-container */}
-
-      {/* ── CTA STRIP — Scene 5: portal of calm light ── */}
-      <section
-        ref={ctaRef as React.RefObject<HTMLElement>}
-        style={{
-          padding: 'clamp(80px, 12vw, 140px) clamp(20px, 5vw, 60px)',
-          textAlign: 'center',
-          position: 'relative',
-          overflow: 'hidden',
-        }}
-      >
-        {/* Portal ring — expands on scroll, inviting entry */}
-        {[0, 1, 2].map(i => (
-          <div
-            key={i}
-            style={{
-              position: 'absolute',
-              top: '50%',
-              left: '50%',
-              borderRadius: '50%',
-              border: `1px solid rgba(127,168,130,${0.12 - i * 0.03})`,
-              transform: `translate(-50%, -50%) scale(${
-                ctaInView
-                  ? 0.4 + ctaProgress * (0.6 + i * 0.5)
-                  : 0.2 + i * 0.1
-              })`,
-              width: `${80 + i * 120}vw`,
-              height: `${80 + i * 120}vw`,
-              opacity: ctaInView ? Math.max(0, 0.7 - i * 0.2) : 0,
-              transition: `transform 1400ms cubic-bezier(0.16,1,0.3,1) ${i * 80}ms,
-                           opacity 800ms ease ${i * 80}ms`,
-              pointerEvents: 'none',
-            }}
-          />
-        ))}
-        {/* Warm radial glow that breathes in */}
-        <div
-          style={{
-            position: 'absolute',
-            top: '50%',
-            left: '50%',
-            transform: `translate(-50%, -50%) scale(${ctaInView ? 1 : 0.3})`,
-            width: '80vw',
-            height: '80vw',
-            background: 'radial-gradient(ellipse, rgba(127,168,130,0.09) 0%, transparent 65%)',
-            opacity: ctaInView ? 1 : 0,
-            transition: 'transform 1600ms cubic-bezier(0.16,1,0.3,1), opacity 1000ms ease',
-            pointerEvents: 'none',
-          }}
-        />
-
-        <div style={{ position: 'relative', maxWidth: 700, margin: '0 auto' }}>
-          <ScrollReveal duration={1200}>
-            <h2
-              style={{
-                fontFamily: 'var(--font-display), Georgia, serif',
-                fontSize: 'clamp(36px, 6vw, 72px)',
-                fontWeight: 300,
-                fontStyle: 'italic',
-                color: 'var(--cream)',
-                letterSpacing: '-1px',
-                lineHeight: 1.1,
-                marginBottom: 24,
-              }}
-            >
-              Ready to flow?
-            </h2>
-          </ScrollReveal>
-
-          <ScrollReveal duration={1000} delay={150}>
-            <p
-              style={{
-                fontFamily: 'var(--font-body), sans-serif',
-                fontSize: '16px',
-                fontWeight: 300,
-                color: 'var(--muted)',
-                lineHeight: 1.85,
-                marginBottom: 44,
-                maxWidth: 520,
-                margin: '0 auto 44px',
-              }}
-            >
-              Sessions are available online and in-person. Your practice begins with one breath.
+      <section id="about" style={{
+        padding: 'clamp(80px, 12vw, 140px) clamp(24px, 5vw, 72px)',
+        maxWidth: 1200, margin: '0 auto',
+        display: 'grid', gridTemplateColumns: '1fr 1fr',
+        gap: 'clamp(48px, 8vw, 120px)', alignItems: 'center',
+      }}>
+        <div style={{ position: 'relative', zIndex: 5 }}>
+          <ScrollReveal duration={1000}>
+            <p style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              fontFamily: 'var(--font-body), sans-serif',
+              fontSize: '11px', letterSpacing: '3px', textTransform: 'uppercase',
+              color: 'var(--sage)', marginBottom: 28,
+            }}>
+              <span style={{ display: 'inline-block', width: 28, height: 1, background: 'var(--sage)', opacity: 0.5 }} />
+              about curtana
             </p>
           </ScrollReveal>
 
-          <ScrollReveal duration={900} delay={250}>
-            <Link
-              href="/book"
-              style={{
-                display: 'inline-block',
-                fontFamily: 'var(--font-body), sans-serif',
-                fontSize: '14px',
-                fontWeight: 400,
-                letterSpacing: '2px',
-                textTransform: 'uppercase',
-                color: 'var(--bg)',
-                background: 'var(--sage)',
-                padding: '18px 52px',
-                borderRadius: '100px',
-                textDecoration: 'none',
-                transition: 'background 400ms ease, transform 400ms cubic-bezier(0.16,1,0.3,1), box-shadow 400ms ease',
-              }}
-              onMouseEnter={e => {
-                e.currentTarget.style.background = 'var(--sage-light)'
-                e.currentTarget.style.transform = 'scale(1.04)'
-                e.currentTarget.style.boxShadow = '0 0 60px rgba(127,168,130,0.35)'
-              }}
-              onMouseLeave={e => {
-                e.currentTarget.style.background = 'var(--sage)'
-                e.currentTarget.style.transform = 'scale(1)'
-                e.currentTarget.style.boxShadow = 'none'
-              }}
-            >
-              Book a session →
-            </Link>
+          <SplitHeading
+            delay={80}
+            style={{
+              fontFamily: 'var(--font-display), Georgia, serif',
+              fontSize: 'clamp(38px, 5vw, 70px)',
+              fontWeight: 400, fontStyle: 'italic',
+              color: 'var(--cream)', lineHeight: 1.05,
+              letterSpacing: '-2px', marginBottom: 32,
+            }}
+          >
+            Private. Precise. Transformative.
+          </SplitHeading>
+
+          <ScrollReveal duration={1000} delay={180}>
+            <p style={{
+              fontFamily: 'var(--font-body), sans-serif',
+              fontSize: 'clamp(14px, 1.5vw, 16px)', fontWeight: 300,
+              color: 'var(--text)', lineHeight: 1.9, marginBottom: 22,
+            }}>
+              I’m Curtana. I work with individuals and organisations on the problems
+              they can’t talk about openly — psychological wellbeing, social
+              confidence, and professional situations that require complete discretion.
+            </p>
+          </ScrollReveal>
+
+          <ScrollReveal duration={1000} delay={240}>
+            <p style={{
+              fontFamily: 'var(--font-body), sans-serif',
+              fontSize: 'clamp(14px, 1.5vw, 16px)', fontWeight: 300,
+              color: 'var(--text)', lineHeight: 1.9, marginBottom: 36,
+            }}>
+              Every engagement is tailored. There is no template, no generic programme.
+              Whether you’re navigating a personal challenge or a complex professional
+              situation, I meet you exactly where you are — and we build from there.
+            </p>
+          </ScrollReveal>
+
+          <ScrollReveal duration={900} delay={300}>
+            <blockquote style={{
+              borderLeft: '2px solid var(--sage)', paddingLeft: 24,
+              fontFamily: 'var(--font-display), Georgia, serif',
+              fontSize: 'clamp(17px, 2vw, 22px)', fontStyle: 'italic',
+              fontWeight: 300, color: 'var(--sand-light)', lineHeight: 1.5,
+            }}>
+              &ldquo;Private solutions to personal &amp; professional problems.&rdquo;
+            </blockquote>
           </ScrollReveal>
         </div>
+
+        <RevealImage
+          aspect="4/5"
+          delay={200}
+          parallax={0.3}
+          src="https://images.squarespace-cdn.com/content/v1/695b27224b510b7c2a50e426/46f10a10-d989-4db8-bbb1-c04c9c6c604a/2706.jpg"
+          alt="Curtana"
+          style={{ borderRadius: 2 }}
+        />
       </section>
+      </motion.div>{/* /about */}
+
+
+      {/* ══════════════════════════════════════════════════════════
+          SERVICES
+      ══════════════════════════════════════════════════════════ */}
+      <motion.div
+        variants={sectionVariants}
+        initial="hidden"
+        whileInView="visible"
+        viewport={{ once: true, margin: '-60px' }}
+        transition={{ ...sectionTransition, delay: 0.05 }}
+        style={{ background: 'rgba(13,15,14,0.72)', position: 'relative', zIndex: 4 }}
+      >
+      <section id="services" style={{
+        padding: 'clamp(60px, 10vw, 120px) clamp(24px, 5vw, 72px)',
+        maxWidth: 1200, margin: '0 auto',
+      }}>
+        <ScrollReveal duration={1000}>
+          <p style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            fontFamily: 'var(--font-body), sans-serif',
+            fontSize: '11px', letterSpacing: '3px', textTransform: 'uppercase',
+            color: 'var(--sage)', marginBottom: 20,
+            position: 'relative', zIndex: 5,
+          }}>
+            <span style={{ display: 'inline-block', width: 28, height: 1, background: 'var(--sage)', opacity: 0.5 }} />
+            what I offer
+          </p>
+        </ScrollReveal>
+        <SplitHeading style={{
+          fontFamily: 'var(--font-display), Georgia, serif',
+          fontSize: 'clamp(38px, 5.5vw, 76px)',
+          fontWeight: 400, fontStyle: 'italic',
+          color: 'var(--cream)', lineHeight: 1.05,
+          letterSpacing: '-2px', marginBottom: 'clamp(60px, 8vw, 100px)',
+          position: 'relative', zIndex: 5,
+        }}>
+          Private solutions to personal & professional problems.
+        </SplitHeading>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(60px, 10vw, 120px)' }}>
+          {SERVICES.map((service, i) => (
+            <div key={service.title}>
+            <ScrollReveal duration={1100} delay={0}>
+              <div>
+              <div className="service-row" style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 1fr',
+                gap: 'clamp(32px, 5vw, 80px)',
+                alignItems: 'center',
+                direction: i % 2 === 0 ? 'ltr' : 'rtl',
+              }}>
+                <div style={{ direction: 'ltr' }}>
+                  <RevealImage
+                    aspect="4/3"
+                    delay={i * 60}
+                    parallax={0.28}
+                    gradient={service.gradient}
+                    src={service.src}
+                    alt={service.alt}
+                  />
+                </div>
+
+                <div style={{ direction: 'ltr', display: 'flex', flexDirection: 'column', gap: 16, position: 'relative', zIndex: 5 }}>
+                  <p style={{
+                    fontFamily: 'var(--font-body), sans-serif',
+                    fontSize: '10px', letterSpacing: '3px', textTransform: 'uppercase',
+                    color: 'var(--sage)',
+                  }}>{service.tag}</p>
+
+                  <SplitHeading as="h3" delay={i * 40} style={{
+                    fontFamily: 'var(--font-display), Georgia, serif',
+                    fontSize: 'clamp(26px, 3vw, 42px)',
+                    fontWeight: 400, fontStyle: 'italic',
+                    color: 'var(--cream)', lineHeight: 1.1, letterSpacing: '-0.5px',
+                  }}>{service.title}</SplitHeading>
+
+                  <p style={{
+                    fontFamily: 'var(--font-body), sans-serif',
+                    fontSize: '11px', letterSpacing: '1.5px',
+                    color: 'var(--muted)',
+                  }}>{service.duration}</p>
+
+                  <p style={{
+                    fontFamily: 'var(--font-body), sans-serif',
+                    fontSize: 'clamp(13px, 1.4vw, 15px)', fontWeight: 300,
+                    color: 'var(--text)', lineHeight: 1.85,
+                  }}>{service.description}</p>
+
+                  {service.includes.length > 0 && (
+                    <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {service.includes.map(item => (
+                        <li key={item} style={{
+                          display: 'flex', alignItems: 'center', gap: 10,
+                          fontFamily: 'var(--font-body), sans-serif',
+                          fontSize: 13, fontWeight: 300, color: 'var(--muted)',
+                        }}>
+                          <span style={{ width: 16, height: 1, background: 'var(--sage)', opacity: 0.6, flexShrink: 0 }} />
+                          {item}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+              </div>
+            </ScrollReveal>
+            </div>
+          ))}
+        </div>
+      </section>
+      </motion.div>{/* /services */}
+
+
+      {/* ══════════════════════════════════════════════════════════
+          CONTACT
+      ══════════════════════════════════════════════════════════ */}
+      <motion.div
+        variants={sectionVariants}
+        initial="hidden"
+        whileInView="visible"
+        viewport={{ once: true, margin: '-60px' }}
+        transition={{ ...sectionTransition, delay: 0.05 }}
+        style={{ background: 'rgba(13,15,14,0.80)', position: 'relative', zIndex: 4 }}
+      >
+      <section id="contact" style={{
+        padding: 'clamp(80px, 12vw, 140px) clamp(24px, 5vw, 72px)',
+        maxWidth: 1200, margin: '0 auto',
+      }}>
+
+        {/* Contact hero */}
+        <div style={{
+          display: 'grid', gridTemplateColumns: '1fr 1fr',
+          gap: 'clamp(40px, 6vw, 100px)', alignItems: 'end',
+          marginBottom: 'clamp(40px, 6vw, 80px)',
+        }}>
+          <div style={{ position: 'relative', zIndex: 5 }}>
+            <ScrollReveal duration={1000}>
+              <p style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                fontFamily: 'var(--font-body), sans-serif',
+                fontSize: '11px', letterSpacing: '3px', textTransform: 'uppercase',
+                color: 'var(--sage)', marginBottom: 28,
+              }}>
+                <span style={{ display: 'inline-block', width: 28, height: 1, background: 'var(--sage)', opacity: 0.5 }} />
+                get in touch
+              </p>
+            </ScrollReveal>
+            <SplitHeading delay={80} style={{
+              fontFamily: 'var(--font-display), Georgia, serif',
+              fontSize: 'clamp(38px, 5.5vw, 72px)',
+              fontWeight: 400, fontStyle: 'italic',
+              color: 'var(--cream)', lineHeight: 1.05,
+              letterSpacing: '-2px', marginBottom: 28,
+            }}>
+              Let's flow together.
+            </SplitHeading>
+            <ScrollReveal duration={1000} delay={180}>
+              <p style={{
+                fontFamily: 'var(--font-body), sans-serif',
+                fontSize: 'clamp(14px, 1.5vw, 16px)', fontWeight: 300,
+                color: 'var(--muted)', lineHeight: 1.85, marginBottom: 20, maxWidth: 420,
+              }}>
+                For inquiries about coaching, events or press opportunities, please feel free to reach out here.
+              </p>
+            </ScrollReveal>
+            <ScrollReveal duration={900} delay={260}>
+              <p style={{
+                fontFamily: 'var(--font-body), sans-serif',
+                fontSize: '13px', fontWeight: 300,
+                color: 'var(--dim)', lineHeight: 1.7,
+              }}>
+                Everything is confidential from the first message.
+              </p>
+            </ScrollReveal>
+          </div>
+
+          <RevealImage
+            aspect="3/4"
+            delay={200}
+            parallax={0.3}
+            src="https://images.squarespace-cdn.com/content/v1/695b27224b510b7c2a50e426/46f10a10-d989-4db8-bbb1-c04c9c6c604a/2706.jpg"
+            alt="Curtana — botanical greenhouse"
+          />
+        </div>
+
+        {/* Form or success */}
+        {submitted ? (
+          <div style={{ textAlign: 'center', padding: 'clamp(60px, 8vw, 100px) 0', position: 'relative', zIndex: 5 }}>
+            <div style={{
+              width: 64, height: 64, borderRadius: '50%',
+              background: 'var(--sage-glow)', border: '1px solid var(--border2)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              margin: '0 auto 32px',
+            }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--sage)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            </div>
+            <h3 style={{
+              fontFamily: 'var(--font-display), Georgia, serif',
+              fontSize: 'clamp(32px, 4vw, 52px)', fontWeight: 300, fontStyle: 'italic',
+              color: 'var(--cream)', letterSpacing: '-1px', marginBottom: 16,
+            }}>Message sent.</h3>
+            <p style={{
+              fontFamily: 'var(--font-body), sans-serif',
+              fontSize: '15px', fontWeight: 300, color: 'var(--muted)', lineHeight: 1.85, marginBottom: 40,
+            }}>
+              Thank you for reaching out. I respond to all enquiries within 48 hours.
+            </p>
+            <button
+              onClick={() => setSubmitted(false)}
+              style={{
+                fontFamily: 'var(--font-body), sans-serif',
+                fontSize: '13px', letterSpacing: '2px', textTransform: 'uppercase',
+                color: 'var(--muted)', background: 'none',
+                border: '1px solid var(--border)', padding: '12px 28px',
+                borderRadius: '100px', cursor: 'pointer',
+                transition: 'border-color 300ms ease, color 300ms ease',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--border2)'; e.currentTarget.style.color = 'var(--text)' }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)';  e.currentTarget.style.color = 'var(--muted)' }}
+            >
+              Send another
+            </button>
+          </div>
+        ) : (
+          <div style={{
+            display: 'grid', gridTemplateColumns: '1fr 2fr',
+            gap: 'clamp(48px, 8vw, 120px)', alignItems: 'start',
+            position: 'relative', zIndex: 5,
+          }}>
+            {/* Left: info */}
+            <ScrollReveal duration={1000}>
+              <p style={{
+                fontFamily: 'var(--font-body), sans-serif',
+                fontSize: '11px', letterSpacing: '3px', textTransform: 'uppercase',
+                color: 'var(--sage)', marginBottom: 20,
+                display: 'flex', alignItems: 'center', gap: 10,
+              }}>
+                <span style={{ display: 'inline-block', width: 28, height: 1, background: 'var(--sage)', opacity: 0.5 }} />
+                reach out
+              </p>
+              <p style={{
+                fontFamily: 'var(--font-body), sans-serif',
+                fontSize: '14px', fontWeight: 300, color: 'var(--muted)', lineHeight: 1.85, marginBottom: 32,
+              }}>
+                I respond to all enquiries within 48 hours.
+              </p>
+              <a
+                href="https://instagram.com/flowwithcurtana"
+                target="_blank" rel="noopener noreferrer"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 8,
+                  fontFamily: 'var(--font-body), sans-serif',
+                  fontSize: '14px', color: 'var(--sage)', textDecoration: 'none',
+                  transition: 'color 300ms ease',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.color = 'var(--sage-light)')}
+                onMouseLeave={e => (e.currentTarget.style.color = 'var(--sage)')}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="2" y="2" width="20" height="20" rx="5" ry="5"/>
+                  <circle cx="12" cy="12" r="4"/>
+                  <circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/>
+                </svg>
+                @flowwithcurtana
+              </a>
+            </ScrollReveal>
+
+            {/* Right: form */}
+            <ScrollReveal duration={1100} delay={150}>
+              <form onSubmit={handleSubmit(onSubmit)} noValidate style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+
+                {/* First + Last */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                  <div>
+                    <label htmlFor="firstName" style={labelStyle}>First Name</label>
+                    <input
+                      id="firstName" type="text" placeholder="First"
+                      {...register('firstName', { required: 'Required' })}
+                      style={{ ...inputStyle, ...getFocusStyle('firstName'), ...getErrorStyle(!!errors.firstName) }}
+                      onFocus={() => setFocused('firstName')} onBlur={() => setFocused(null)}
+                    />
+                    {errors.firstName && <p style={{ fontFamily: 'var(--font-body), sans-serif', fontSize: '12px', color: 'var(--gold)', marginTop: 6 }}>{errors.firstName.message}</p>}
+                  </div>
+                  <div>
+                    <label htmlFor="lastName" style={labelStyle}>Last Name</label>
+                    <input
+                      id="lastName" type="text" placeholder="Last"
+                      {...register('lastName', { required: 'Required' })}
+                      style={{ ...inputStyle, ...getFocusStyle('lastName'), ...getErrorStyle(!!errors.lastName) }}
+                      onFocus={() => setFocused('lastName')} onBlur={() => setFocused(null)}
+                    />
+                    {errors.lastName && <p style={{ fontFamily: 'var(--font-body), sans-serif', fontSize: '12px', color: 'var(--gold)', marginTop: 6 }}>{errors.lastName.message}</p>}
+                  </div>
+                </div>
+
+                {/* Email */}
+                <div>
+                  <label htmlFor="email" style={labelStyle}>Email</label>
+                  <input
+                    id="email" type="email" placeholder="your@email.com"
+                    {...register('email', {
+                      required: 'Email is required',
+                      pattern: { value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/, message: 'Please enter a valid email' },
+                    })}
+                    style={{ ...inputStyle, ...getFocusStyle('email'), ...getErrorStyle(!!errors.email) }}
+                    onFocus={() => setFocused('email')} onBlur={() => setFocused(null)}
+                  />
+                  {errors.email && <p style={{ fontFamily: 'var(--font-body), sans-serif', fontSize: '12px', color: 'var(--gold)', marginTop: 6 }}>{errors.email.message}</p>}
+                </div>
+
+                {/* Subject */}
+                <div>
+                  <label htmlFor="subject" style={labelStyle}>Subject</label>
+                  <input
+                    id="subject" type="text" placeholder="What’s on your mind?"
+                    {...register('subject')}
+                    style={{ ...inputStyle, ...getFocusStyle('subject') }}
+                    onFocus={() => setFocused('subject')} onBlur={() => setFocused(null)}
+                  />
+                </div>
+
+                {/* Inquiry checkboxes */}
+                <div>
+                  <p style={{ ...labelStyle, marginBottom: 16 }}>Inquiry type</p>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px 24px' }}>
+                    {INQUIRY_TYPES.map(type => {
+                      const isChecked = checked.includes(type.value)
+                      return (
+                        <label key={type.value} style={{
+                          display: 'flex', alignItems: 'center', gap: 10,
+                          cursor: 'pointer',
+                          fontFamily: 'var(--font-body), sans-serif',
+                          fontSize: '14px', fontWeight: 300,
+                          color: isChecked ? 'var(--text)' : 'var(--muted)',
+                          transition: 'color 250ms ease',
+                        }}>
+                          <span
+                            onClick={() => toggleInquiry(type.value)}
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                              width: 20, height: 20, borderRadius: 6, flexShrink: 0,
+                              border: `1px solid ${isChecked ? 'var(--sage)' : 'var(--border)'}`,
+                              background: isChecked ? 'var(--sage-glow)' : 'transparent',
+                              transition: 'border-color 250ms ease, background 250ms ease',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {isChecked && (
+                              <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="var(--sage)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <polyline points="2 6 5 9 10 3" />
+                              </svg>
+                            )}
+                          </span>
+                          <span onClick={() => toggleInquiry(type.value)}>{type.label}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Message */}
+                <div>
+                  <label htmlFor="message" style={labelStyle}>Message</label>
+                  <textarea
+                    id="message" rows={5}
+                    placeholder="Tell me a little about yourself and what brings you here..."
+                    {...register('message', { required: 'A message is required' })}
+                    style={{ ...inputStyle, ...getFocusStyle('message'), ...getErrorStyle(!!errors.message), resize: 'vertical', minHeight: 120 }}
+                    onFocus={() => setFocused('message')} onBlur={() => setFocused(null)}
+                  />
+                  {errors.message && <p style={{ fontFamily: 'var(--font-body), sans-serif', fontSize: '12px', color: 'var(--gold)', marginTop: 6 }}>{errors.message.message}</p>}
+                </div>
+
+                {/* Submit */}
+                <button
+                  type="submit" disabled={isSubmitting}
+                  style={{
+                    fontFamily: 'var(--font-body), sans-serif',
+                    fontSize: '13px', fontWeight: 400,
+                    letterSpacing: '2px', textTransform: 'uppercase',
+                    color: 'var(--bg)', background: isSubmitting ? 'var(--muted)' : 'var(--sage)',
+                    padding: '16px 44px', borderRadius: '100px',
+                    border: 'none', cursor: 'pointer',
+                    transition: 'background 400ms ease, transform 400ms cubic-bezier(0.16,1,0.3,1)',
+                    alignSelf: 'flex-start', opacity: isSubmitting ? 0.7 : 1,
+                  }}
+                  onMouseEnter={e => { if (!isSubmitting) { e.currentTarget.style.background = 'var(--sage-light)'; e.currentTarget.style.transform = 'scale(1.02)' } }}
+                  onMouseLeave={e => { e.currentTarget.style.background = isSubmitting ? 'var(--muted)' : 'var(--sage)'; e.currentTarget.style.transform = 'scale(1)' }}
+                >
+                  {isSubmitting ? 'Sending...' : 'Send message \u2192'}
+                </button>
+              </form>
+            </ScrollReveal>
+          </div>
+        )}
+      </section>
+      </motion.div>{/* /contact */}
+      </div>{/* /content wrapper */}
 
       <style>{`
+        @media (max-width: 768px) {
+          #about,
+          #contact > div:first-child { grid-template-columns: 1fr !important; }
+          .service-row { grid-template-columns: 1fr !important; direction: ltr !important; }
+          #contact > div:last-child { grid-template-columns: 1fr !important; }
+        }
+        input::placeholder, textarea::placeholder {
+          color: var(--dim);
+          font-family: var(--font-body), sans-serif;
+        }
         @keyframes scrollPulse {
           0%, 100% { opacity: 0.4; transform: scaleY(1); }
           50%       { opacity: 1;   transform: scaleY(1.2); }
         }
       `}</style>
     </main>
+    </>
   )
 }

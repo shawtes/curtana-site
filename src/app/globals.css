@@ -16,9 +16,9 @@
   --font-display: 'Cormorant Garamond';
   --font-body: 'DM Sans';
 
-  --bg:          #0d0f0e;
-  --bg2:         #141815;
-  --surface:     #1c211d;
+  --bg:          #161a17;
+  --bg2:         #1e2420;
+  --surface:     #252c27;
 
   --border:      rgba(127, 168, 130, 0.12);
   --border2:     rgba(127, 168, 130, 0.25);
@@ -39,17 +39,22 @@
   --gold:        #c9a96e;
   --gold-soft:   rgba(201, 169, 110, 0.2);
 
-  --text:        #e8ede9;
-  --muted:       #7a8b7c;
-  --dim:         #3d4a3e;
+  --text:        #edf2ee;
+  --muted:       #96a898;
+  --dim:         #536055;
 }
 
 * { cursor: none; box-sizing: border-box; }
 
-html { scroll-behavior: smooth; }
+html {
+  /* scroll-behavior is handled by our virtual scroll engine — do not add CSS smooth here */
+  /* Dark fallback so page never flashes white before canvas loads */
+  background: #0d0f0e;
+}
 
 body {
-  background: var(--bg);
+  /* Background is provided by the fixed WebGL canvas — transparent here lets it show through */
+  background: transparent;
   color: var(--text);
   font-family: var(--font-body), sans-serif;
   font-weight: 300;

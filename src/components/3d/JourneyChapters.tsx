@@ -15,13 +15,13 @@ interface Chapter {
 
 // Chapters per SUBMERSION_JOURNEY_PROMPT.md
 const CHAPTERS: Chapter[] = [
-  { text: 'Move with intention.',              from: 0.00, to: 0.14, align: 'left',   size: 'md' },
-  { text: 'Let go.',                           from: 0.18, to: 0.27, align: 'center', size: 'lg' },
-  { text: 'Deeper.',                           from: 0.30, to: 0.44, align: 'right',  size: 'sm', pulse: true },
-  { text: 'The pattern beneath everything.',   from: 0.50, to: 0.61, align: 'left',   size: 'md' },
-  { text: 'She is the eye of the storm.',      from: 0.64, to: 0.76, align: 'center', size: 'md' },
-  { text: 'She sees you.',                     from: 0.82, to: 0.91, align: 'center', size: 'xl' },
-  { text: 'Begin.',                            from: 0.93, to: 1.00, align: 'center', size: 'xxl', color: '#2a3f2e' },
+  { text: 'Private solutions\nto personal &\nprofessional problems.', from: 0.00, to: 0.14, align: 'left',   size: 'md' },
+  { text: 'Let go.',                                                   from: 0.18, to: 0.27, align: 'center', size: 'lg' },
+  { text: 'Go deeper.',                                                from: 0.30, to: 0.44, align: 'right',  size: 'sm', pulse: true },
+  { text: 'The clarity\nyou\u2019ve been\nlooking for.',                   from: 0.50, to: 0.61, align: 'left',   size: 'md' },
+  { text: 'Confidential.\nPersonal.\nPowerful.',                      from: 0.64, to: 0.76, align: 'center', size: 'md' },
+  { text: 'She sees you.',                                             from: 0.82, to: 0.91, align: 'center', size: 'xl' },
+  { text: 'Begin.',                                                    from: 0.93, to: 1.00, align: 'center', size: 'xxl', color: '#2a3f2e' },
 ]
 
 const BREATH_EASE = [0.16, 1, 0.3, 1] as const

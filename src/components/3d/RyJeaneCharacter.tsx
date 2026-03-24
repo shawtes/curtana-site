@@ -98,8 +98,6 @@ const TIP_COLOR   = new THREE.Color('#7a5540')
 function HairParticles({ depth }: { depth: number }) {
   const pointsRef = useRef<THREE.Points>(null)
 
-  // Base positions anchored around head (model is ~170cm, lotus pose
-  // places head near y=1.45 in model space; scale=0.011 means ~1.6 scene-units)
   const { geometry, basePos } = useMemo(() => {
     const pos = new Float32Array(HAIR_COUNT * 3)
     const col = new Float32Array(HAIR_COUNT * 3)
@@ -110,10 +108,10 @@ function HairParticles({ depth }: { depth: number }) {
       pos[i * 3 + 1] = 1.52 + t * 0.38 + (Math.random() - 0.5) * 0.05
       pos[i * 3 + 2] = (Math.random() - 0.5) * 0.16
 
-      const c = ROOT_COLOR.clone().lerp(TIP_COLOR, t)
-      col[i * 3]     = c.r
-      col[i * 3 + 1] = c.g
-      col[i * 3 + 2] = c.b
+      _tmpColor.lerpColors(ROOT_COLOR, TIP_COLOR, t)
+      col[i * 3]     = _tmpColor.r
+      col[i * 3 + 1] = _tmpColor.g
+      col[i * 3 + 2] = _tmpColor.b
     }
 
     const geo = new THREE.BufferGeometry()
@@ -121,6 +119,10 @@ function HairParticles({ depth }: { depth: number }) {
     geo.setAttribute('color',    new THREE.BufferAttribute(col, 3))
     return { geometry: geo, basePos: pos.slice() }
   }, [])
+
+  useEffect(() => {
+    return () => { geometry.dispose() }
+  }, [geometry])
 
   useFrame(({ clock }) => {
     if (!pointsRef.current) return

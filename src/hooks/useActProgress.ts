@@ -1,16 +1,12 @@
 'use client'
 
 /**
- * useActProgress — returns normalized 0→1 progress for each submersion act.
+ * useActProgress — 4-act simplified submersion cinematic.
  *
- * Act boundaries match SUBMERSION_JOURNEY_PROMPT.md:
- *   A0  0.00 → 0.15  Surface
- *   A1  0.15 → 0.28  Submersion
- *   A2  0.28 → 0.45  The Deep
- *   A3  0.45 → 0.62  Geometry Awakens
- *   A4  0.62 → 0.78  Full Hyperspace
- *   A5  0.78 → 0.92  The Turn
- *   A6  0.92 → 1.00  White Bloom
+ *   A0  0.00 → 0.25  Surface        — meditating on water
+ *   A1  0.25 → 0.60  Submersion     — descends, camera follows under
+ *   A2  0.60 → 0.85  The Turn       — rotates to face camera
+ *   A3  0.85 → 1.00  White Bloom    — light floods screen → into site
  */
 
 function clamp01(value: number, start: number, end: number) {
@@ -32,21 +28,19 @@ export function useActProgress(scrollProgress: number): ActProgress {
   const p = scrollProgress
 
   const act =
-    p < 0.15 ? 0 :
-    p < 0.28 ? 1 :
-    p < 0.45 ? 2 :
-    p < 0.62 ? 3 :
-    p < 0.78 ? 4 :
-    p < 0.92 ? 5 : 6
+    p < 0.25 ? 0 :
+    p < 0.60 ? 1 :
+    p < 0.85 ? 2 : 3
 
   return {
     act,
-    a0: clamp01(p, 0.00, 0.15),
-    a1: clamp01(p, 0.15, 0.28),
-    a2: clamp01(p, 0.28, 0.45),
-    a3: clamp01(p, 0.45, 0.62),
-    a4: clamp01(p, 0.62, 0.78),
-    a5: clamp01(p, 0.78, 0.92),
-    a6: clamp01(p, 0.92, 1.00),
+    a0: clamp01(p, 0.00, 0.25),
+    a1: clamp01(p, 0.25, 0.60),
+    a2: clamp01(p, 0.60, 0.85),
+    a3: clamp01(p, 0.85, 1.00),
+    // legacy aliases — mapped so downstream code doesn't break
+    a4: 0,
+    a5: clamp01(p, 0.60, 0.85),  // "turn" progress (shrinks streaks, slow rings)
+    a6: clamp01(p, 0.85, 1.00),  // "bloom" progress (was a6)
   }
 }

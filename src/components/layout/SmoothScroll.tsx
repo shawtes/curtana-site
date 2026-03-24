@@ -1,102 +1,143 @@
 'use client'
 
 /**
- * SmoothScroll — Lenis-based smooth scroll provider.
+ * SmoothScroll — Lenis-powered scroll engine, ticked inside rAF.
  *
- * Lenis uses virtual scroll (intercepts wheel/touch events, animates lerp,
- * updates window.scrollY via a fake scrollbar or raf loop). Unlike the old
- * CSS-transform approach, it does NOT apply position:fixed or transform to
- * the page, so position:sticky works correctly everywhere.
+ * Why Lenis + manual rAF tick?
+ *   Native scroll runs on a separate compositor thread. WebGL (Three.js) renders
+ *   inside requestAnimationFrame. If scroll position is read from window.scrollY
+ *   mid-frame, the scroll state and the WebGL render are one frame out of sync —
+ *   you get jitter on fast scrolls, especially on mobile.
  *
- * The 'smooth-scroll' CustomEvent is dispatched each RAF frame so
- * useScrollProgress and other scroll-driven hooks keep working unchanged.
+ *   Lenis intercepts wheel/touch, maintains a virtual scroll position with lerp,
+ *   and is ticked manually via lenis.raf(timestamp) INSIDE our rAF loop.
+ *   This means scroll update → WebGL read → render all happen in the same frame.
+ *   Zero desync.
  *
- * prefers-reduced-motion: Lenis disables itself (duration=0) automatically.
+ * Lerp: frame-rate-independent exponential damp (ported from shaw-portfolio)
+ *   lerp(t) = 1 - exp(-LAMBDA * dt)   where dt = seconds since last frame
+ *
+ *   LAMBDA = 5  → ~1.0 s settle ("cinematic" Curtana feel — lambda guide in mathUtils)
+ *   LAMBDA = 8  → ~0.6 s settle (shaw-portfolio default — too snappy for wellness)
+ *
+ *   This is equivalent to the old fixed-lerp 0.08 at exactly 60 fps but remains
+ *   identical at 30 fps, 90 fps, and 144 fps — no frame-rate drift.
+ *
+ * smooth-scroll-to custom event:
+ *   dispatchEvent(new CustomEvent('smooth-scroll-to', { detail: { y: targetY } }))
+ *   calls lenis.scrollTo() so the auto-scroll during SubmersionJourney Act 2 is
+ *   handled by Lenis rather than raw window.scrollTo().
+ *
+ * Native scroll is driven by Lenis internally via window.scrollTo() so
+ * position:sticky on SubmersionJourney keeps working correctly.
+ *
+ * prefers-reduced-motion: lerp becomes 1 (instant, no animation).
  */
 
+import Lenis from 'lenis'
 import {
   createContext,
   useContext,
   useEffect,
   useRef,
   useState,
-  ReactNode,
+  type ReactNode,
 } from 'react'
-import Lenis from 'lenis'
+
+// ─── DAMP LAMBDA ──────────────────────────────────────────────────────────────
+// Frame-rate-independent. lerp per frame = 1 - exp(-LAMBDA * dt).
+// LAMBDA=5 gives ~1.0 s settle — Curtana's cinematic "breath" pace.
+const LAMBDA         = 5
+const LERP_REDUCED   = 1.0
+
+
+// ─── CONTEXT ──────────────────────────────────────────────────────────────────
 
 interface ScrollState {
-  scrollY: number
+  scrollY:        number
   scrollProgress: number
-  velocity: number
+  velocity:       number
 }
 
 const SmoothScrollContext = createContext<ScrollState>({
-  scrollY: 0,
-  scrollProgress: 0,
-  velocity: 0,
+  scrollY: 0, scrollProgress: 0, velocity: 0,
 })
 
 export const useSmoothScroll = () => useContext(SmoothScrollContext)
 
-export default function SmoothScroll({ children }: { children: ReactNode }) {
-  const lenisRef = useRef<Lenis | null>(null)
-  const rafRef   = useRef<number>(0)
+// ─── PROVIDER ─────────────────────────────────────────────────────────────────
 
-  const [scrollState, setScrollState] = useState<ScrollState>({
-    scrollY: 0,
-    scrollProgress: 0,
-    velocity: 0,
-  })
+export default function SmoothScroll({ children }: { children: ReactNode }) {
+  const rafRef    = useRef<number>(0)
+  const lenisRef  = useRef<Lenis | null>(null)
+  const lastTsRef = useRef<number>(-1)
+  const [state, setState] = useState<ScrollState>({ scrollY: 0, scrollProgress: 0, velocity: 0 })
 
   useEffect(() => {
-    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
+    // ── Create Lenis ────────────────────────────────────────────────────────
+    // Initial lerp is set per-frame below; provide a sane fallback here.
     const lenis = new Lenis({
-      duration: reducedMotion ? 0 : 1.2,
-      easing: (t: number) => Math.min(1, 1.001 - Math.pow(2, -10 * t)), // expo out
-      smoothWheel: !reducedMotion,
-      touchMultiplier: 1.8,
+      lerp:        reduced ? LERP_REDUCED : 0.1,
+      smoothWheel: true,
     })
-
     lenisRef.current = lenis
 
-    lenis.on('scroll', (l: Lenis) => {
-      const scroll   = l.scroll
-      const progress = l.progress
-      const velocity = l.velocity
+    // ── smooth-scroll-to event — lets internal code drive Lenis directly ───
+    // Usage: dispatchEvent(new CustomEvent('smooth-scroll-to', { detail: { y } }))
+    const onScrollTo = (e: Event) => {
+      const { y } = (e as CustomEvent<{ y: number }>).detail
+      lenis.scrollTo(y, { immediate: false })
+    }
+    window.addEventListener('smooth-scroll-to', onScrollTo)
 
-      // Dispatch lightweight event so useScrollProgress / ScrollReveal still work
+    // ── RAF loop — ticks Lenis on the same frame as Three.js renders ────────
+    const tick = (timestamp: number) => {
+      // ── Compute frame-rate-independent lerp ───────────────────────────────
+      // dt in seconds; clamp to 100 ms to avoid giant jumps after tab-switch.
+      if (!reduced) {
+        const dt         = lastTsRef.current < 0 ? 1 / 60 : Math.min((timestamp - lastTsRef.current) / 1000, 0.1)
+        const dynamicLerp = 1 - Math.exp(-LAMBDA * dt);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (lenis as any).options.lerp = dynamicLerp
+      }
+      lastTsRef.current = timestamp
+
+      // ── Tick Lenis — this is the sync point with WebGL ────────────────────
+      // lenis.raf() lerps animatedScroll → targetScroll and calls window.scrollTo()
+      // internally. After this call, lenis.scroll and lenis.progress are current.
+      lenis.raf(timestamp)
+
+      // ── Publish scroll state to context + custom event ────────────────────
+      const y        = lenis.scroll
+      const progress = lenis.progress
+      const velocity = lenis.velocity ?? 0
+
       window.dispatchEvent(
-        new CustomEvent('smooth-scroll', { detail: { y: scroll } })
+        new CustomEvent('smooth-scroll', { detail: { y } })
       )
 
-      setScrollState(prev => {
-        if (Math.abs(prev.scrollY - scroll) > 0.5) {
-          return {
-            scrollY: scroll,
-            scrollProgress: Math.max(0, Math.min(1, progress)),
-            velocity,
-          }
-        }
-        return prev
-      })
-    })
+      setState(s =>
+        Math.abs(s.scrollY - y) > 0.5
+          ? { scrollY: y, scrollProgress: progress, velocity }
+          : s
+      )
 
-    const tick = (time: number) => {
-      lenis.raf(time)
       rafRef.current = requestAnimationFrame(tick)
     }
+
     rafRef.current = requestAnimationFrame(tick)
 
     return () => {
       cancelAnimationFrame(rafRef.current)
+      window.removeEventListener('smooth-scroll-to', onScrollTo)
       lenis.destroy()
     }
   }, [])
 
-  // No wrapper element needed — Lenis doesn't require a transform context
   return (
-    <SmoothScrollContext.Provider value={scrollState}>
+    <SmoothScrollContext.Provider value={state}>
       {children}
     </SmoothScrollContext.Provider>
   )

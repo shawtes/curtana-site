@@ -37,16 +37,33 @@ export default function WaterPlane({ visible, distortion = 1.2 }: Props) {
       textureWidth:    512,
       textureHeight:   512,
       waterNormals:    normals,
-      // Low-angle moonlight — grazes the horizon, cool dim reflection
+      // Night — moonlight reflects off deep sage-tinted water
       sunDirection:    new THREE.Vector3(-0.4, 0.08, -0.9).normalize(),
-      sunColor:        0x223344,   // dim cool moonlight, not white sun
-      waterColor:      0x0a1214,   // near-black with faint teal — still water at 2am
+      sunColor:        0x4a7a5c,
+      waterColor:      0x0a1214,
       distortionScale: distortion,
       fog:             true,
-      alpha:           1.0,        // fully opaque — no sea-floor showing
+      alpha:           1.0,
     })
     water.rotation.x = -Math.PI / 2
     waterRef.current  = water
+
+    // Hide stars during the water's reflection render pass so they don't
+    // appear mirrored on the water surface. The Water shader calls
+    // onBeforeRender which internally renders the scene to a reflection
+    // texture — we wrap that to toggle visibility of tagged objects.
+    const originalOnBeforeRender = water.onBeforeRender.bind(water)
+    water.onBeforeRender = (renderer, scene, camera, geometry, material, group) => {
+      const hidden: THREE.Object3D[] = []
+      scene.traverse((obj) => {
+        if (obj.userData.hideFromWaterReflection && obj.visible) {
+          obj.visible = false
+          hidden.push(obj)
+        }
+      })
+      originalOnBeforeRender(renderer, scene, camera, geometry, material, group)
+      hidden.forEach((obj) => { obj.visible = true })
+    }
 
     if (groupRef.current) groupRef.current.add(water)
 
@@ -54,6 +71,9 @@ export default function WaterPlane({ visible, distortion = 1.2 }: Props) {
       if (groupRef.current) groupRef.current.remove(water)
       geom.dispose()
       water.material.dispose()
+      // Dispose the internal reflection WebGLRenderTarget — without this
+      // a ~16MB framebuffer is leaked every time the component remounts.
+      ;(water as any).renderTarget?.dispose()
       waterRef.current = null
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps

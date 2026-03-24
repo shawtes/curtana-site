@@ -16,26 +16,20 @@
  * Reference: /Downloads/SUBMERSION_JOURNEY_PROMPT.md
  */
 
-import { useRef, useMemo, Suspense } from 'react'
+import React, { useRef, useMemo, useEffect, Suspense } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
-import { Sparkles } from '@react-three/drei'
 import StarField from './StarField'
-import { EffectComposer, Bloom, ChromaticAberration, Vignette } from '@react-three/postprocessing'
-import { BlendFunction } from 'postprocessing'
 import * as THREE from 'three'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
 
-import { useScrollProgress }       from '@/hooks/useScrollProgress'
+import { damp }                    from '@/lib/mathUtils'
 import { useActProgress }          from '@/hooks/useActProgress'
 import { useDeviceTier }           from '@/hooks/useDeviceTier'
 import { RyJeaneCharacter, UnderwaterLighting } from './RyJeaneCharacter'
 import WaterPlane                  from './WaterPlane'
-import TorusRings                  from './TorusRings'
 import BiolumiParticles            from './BiolumiParticles'
-import WarpStreaks                  from './WarpStreaks'
-import JourneyChapters             from './JourneyChapters'
-import WhiteFlash                  from '@/components/ui/WhiteFlash'
+import { Caustics }                from '@react-three/drei'
 
 // ─── SHARED COLORS ────────────────────────────────────────────────────────────
 const SAGE  = new THREE.Color('#7fa882')
@@ -74,16 +68,16 @@ function Figure({
     const delta  = progress - prevProg.current
     prevProg.current = progress
 
-    if (progress < 0.15) {
-      // Act 0: lotus pose, seated, subtle breath
+    if (progress < 0.25) {
+      // Act 0: lotus pose on surface, back to camera
       groupRef.current.position.set(0, -0.8, 0)
       groupRef.current.rotation.set(0, 0, 0)
       groupRef.current.scale.setScalar(0.011 * (1 + breath))
       tumbleX.current = 0
       tumbleZ.current = 0
 
-    } else if (progress < 0.28) {
-      // Act 1: descend from -0.8 → -5.0
+    } else if (progress < 0.60) {
+      // Act 1: descend -0.8 → -5.0
       const figY = THREE.MathUtils.lerp(-0.8, -5.0, a1)
       groupRef.current.position.set(0, figY, 0)
       groupRef.current.rotation.set(0, 0, 0)
@@ -91,46 +85,17 @@ function Figure({
       tumbleX.current = 0
       tumbleZ.current = 0
 
-    } else if (progress < 0.45) {
-      // Act 2: tumble driven by scroll delta
-      const eased = 1  // cubic-bezier applied at act-level
-      tumbleX.current += delta * 0.8 * eased
-      tumbleZ.current += delta * 0.3 * eased
-      groupRef.current.rotation.x = tumbleX.current
-      groupRef.current.rotation.z = tumbleZ.current
-      // Subtle breath scale even while tumbling
-      groupRef.current.scale.setScalar(0.011 * (0.85 + Math.sin(t * 0.3) * 0.04))
-
-    } else if (progress < 0.62) {
-      // Act 3: stills — lerp rotation back to 0
-      const stillPct = Math.min(1, a3 / 0.4)
-      tumbleX.current *= (1 - stillPct * 0.12)
-      tumbleZ.current *= (1 - stillPct * 0.12)
-      groupRef.current.rotation.x = tumbleX.current
-      groupRef.current.rotation.z = tumbleZ.current
-      groupRef.current.position.set(0, 0, 0)
-      groupRef.current.scale.setScalar(0.011 * (1 + breath))
-
-    } else if (progress < 0.78) {
-      // Act 4: perfectly still, back-facing
-      groupRef.current.rotation.set(0, 0, 0)
-      groupRef.current.position.set(0, 0, 0)
-      groupRef.current.scale.setScalar(0.011 * (1 + breath))
-      tumbleX.current = 0
-      tumbleZ.current = 0
-
-    } else if (progress < 0.92) {
-      // Act 5: The Turn — rotate π on Y axis
-      // Target = a5 * Math.PI (0 = back-facing, Math.PI = front-facing)
-      turnY.current = THREE.MathUtils.lerp(turnY.current, a5 * Math.PI, 0.04)
+    } else if (progress < 0.85) {
+      // Act 2: The Turn — rotate π on Y (back-facing → front-facing)
+      turnY.current = THREE.MathUtils.lerp(turnY.current, a2 * Math.PI, 0.04)
       groupRef.current.rotation.set(0, turnY.current, 0)
-      groupRef.current.position.set(0, 0, 0)
+      groupRef.current.position.set(0, -5.0, 0)
       groupRef.current.scale.setScalar(0.011 * (1 + breath))
 
     } else {
-      // Act 6: front-facing, scale up slightly with bloom
+      // Act 3: front-facing, hold
       groupRef.current.rotation.set(0, Math.PI, 0)
-      groupRef.current.position.set(0, 0, 0)
+      groupRef.current.position.set(0, -5.0, 0)
       groupRef.current.scale.setScalar(0.011 * (1 + breath))
     }
   })
@@ -208,7 +173,7 @@ function Bubbles({ visible, figureY }: { visible: boolean; figureY: number }) {
       const wobble = Math.sin(t * 2 + b.seed) * 0.03
       dummy.position.set(b.x + wobble, y, b.z)
       // Grow then shrink with life
-      const radius = Math.max(0, Math.sin(b.life * Math.PI)) * (0.015 + Math.random() * 0.005)
+      const radius = Math.max(0, Math.sin(b.life * Math.PI)) * (0.015 + (b.seed % 1) * 0.005)
       dummy.scale.setScalar(radius)
       dummy.updateMatrix()
       meshRef.current!.setMatrixAt(i, dummy.matrix)
@@ -297,24 +262,30 @@ const HORIZON_FRAG = `
 `
 
 function HorizonGradient({ visible }: { visible: boolean }) {
-  const mat = useMemo(() => new THREE.ShaderMaterial({
-    side:        THREE.BackSide,
-    transparent: true,
-    depthWrite:  false,
-    uniforms: {
-      topColor:    { value: new THREE.Color(0x0d0f0e) },  // sky — exact match to --bg
-      bottomColor: { value: new THREE.Color(0x0a1214) },  // water color
-    },
-    vertexShader:   HORIZON_VERT,
-    fragmentShader: HORIZON_FRAG,
-  }), [])
+  const { mat, geo } = useMemo(() => {
+    const m = new THREE.ShaderMaterial({
+      side:        THREE.BackSide,
+      transparent: true,
+      depthWrite:  false,
+      uniforms: {
+        topColor:    { value: new THREE.Color(0x0d0f0e) },
+        bottomColor: { value: new THREE.Color(0x0a1214) },
+      },
+      vertexShader:   HORIZON_VERT,
+      fragmentShader: HORIZON_FRAG,
+    })
+    const g = new THREE.CylinderGeometry(500, 500, 40, 64, 1, true)
+    return { mat: m, geo: g }
+  }, [])
+
+  useEffect(() => {
+    return () => { mat.dispose(); geo.dispose() }
+  }, [mat, geo])
 
   if (!visible) return null
 
   return (
-    <mesh position={[0, -2, 0]} renderOrder={-1} material={mat}>
-      <cylinderGeometry args={[500, 500, 40, 64, 1, true]} />
-    </mesh>
+    <mesh position={[0, -2, 0]} renderOrder={-1} material={mat} geometry={geo} />
   )
 }
 
@@ -346,85 +317,28 @@ function PalmGlow({ act5Progress, act6Progress }: { act5Progress: number; act6Pr
 }
 
 // ─── CAMERA RIG ───────────────────────────────────────────────────────────────
-// Breath-paced lerp factors: camZ × 0.025, camY × 0.02 (spec requirement).
+// Always stays directly behind the figure at a fixed offset.
+// Same lerp speed throughout all acts — camera and figure move as one.
 
-function CameraRig({
-  progress, a1, a2, a3, a4, a5,
-  figureY,
-}: {
-  progress: number
-  a1: number; a2: number; a3: number; a4: number; a5: number
-  figureY: number
-}) {
+function CameraRig({ figureY }: { figureY: number }) {
   const { camera } = useThree()
-  const targetPos  = useRef(new THREE.Vector3(0, 1.2, 5))
-  const targetLook = useRef(new THREE.Vector3(0, 0, 0))
-  const curLook    = useRef(new THREE.Vector3(0, 0, 0))
-  const camRotZ    = useRef(0)
-  const prevProg   = useRef(progress)
+  const curLookY   = useRef(figureY + 0.3)
 
   useFrame(() => {
-    const delta = progress - prevProg.current
-    prevProg.current = progress
+    // Fixed offset behind figure: 1.2 above, 5.0 behind (world Z+)
+    const targetX    = 0
+    const targetY    = figureY + 1.2
+    const targetZ    = 5.0
+    const targetLookY = figureY + 0.3
 
-    if (progress < 0.15) {
-      // Act 0: low eye-level over water surface — camera close to water
-      targetPos.current.set(0, 1.8, 6)
-      targetLook.current.set(0, 0.3, 0)
+    const LERP = 0.035
+    camera.position.x += (targetX     - camera.position.x) * LERP
+    camera.position.y += (targetY     - camera.position.y) * LERP
+    camera.position.z += (targetZ     - camera.position.z) * LERP
+    curLookY.current  += (targetLookY - curLookY.current)  * LERP
 
-    } else if (progress < 0.28) {
-      // Act 1: camera descends with figure, pulls forward slightly
-      targetPos.current.set(
-        0,
-        THREE.MathUtils.lerp(1.8, -3.5, a1),
-        THREE.MathUtils.lerp(6.0, 3.0, a1),
-      )
-      targetLook.current.set(0, figureY + 1, 0)
-
-    } else if (progress < 0.45) {
-      // Act 2: offset from figure, tumbling camera
-      targetPos.current.set(
-        figureY * 0.1 + 0.6,
-        figureY + 0.3,
-        2.5,
-      )
-      targetLook.current.set(0, figureY, 0)
-      camRotZ.current += delta * 0.15
-
-    } else if (progress < 0.62) {
-      // Act 3: locks forward, moves up to center
-      camRotZ.current *= 0.95   // decay camera tumble
-      targetPos.current.set(0, figureY + 0.5, 3.5)
-      targetLook.current.set(0, figureY, 0)
-
-    } else if (progress < 0.78) {
-      // Act 4: rush toward figure
-      camRotZ.current *= 0.9
-      targetPos.current.set(0, 0, THREE.MathUtils.lerp(3.5, 0.8, a4))
-      targetLook.current.set(0, 0, 0)
-
-    } else if (progress < 0.92) {
-      // Act 5: maintain position, face revealed
-      targetPos.current.set(0, 0, 2.0)
-      targetLook.current.set(0, 0.5, 0)
-
-    } else {
-      // Act 6: pull back slightly for the bloom
-      targetPos.current.set(0, 0, 3.0)
-      targetLook.current.set(0, 0, 0)
-    }
-
-    // Breath-paced lerp from spec: 0.025 for Z, 0.02 for Y
-    const cp = camera.position
-    cp.x += (targetPos.current.x - cp.x) * 0.025
-    cp.y += (targetPos.current.y - cp.y) * 0.02
-    cp.z += (targetPos.current.z - cp.z) * 0.025
-
-    curLook.current.lerp(targetLook.current, 0.025)
-    camera.lookAt(curLook.current)
-
-    // Decay camera Z rotation (from Act 2 tumble) via camera matrix
-    camera.rotation.z += (0 - camera.rotation.z) * 0.05
+    camera.lookAt(0, curLookY.current, 0)
+    camera.rotation.z = 0  // no roll
   })
 
   return null
@@ -432,25 +346,30 @@ function CameraRig({
 
 // ─── SCENE BACKGROUND ─────────────────────────────────────────────────────────
 
+const _bgColor   = new THREE.Color()
+const _bgColorA  = new THREE.Color()
+const _bgColorB  = new THREE.Color()
+
 function SceneBackground({ progress, a1, a6 }: { progress: number; a1: number; a6: number }) {
   const { scene, camera } = useThree()
 
-  useFrame(() => {
-    // Underwater: camera below y = -1.8
-    const depth = Math.max(0, -1.8 - camera.position.y)
-    if (depth > 0.05 && progress < 0.45) {
-      const t = Math.min(1, depth / 8)
-      scene.background = new THREE.Color('#0d2a4a').lerp(new THREE.Color('#020810'), t)
-      return
-    }
+  // Allocate scene.background once — reuse via .copy/.lerp
+  const bgRef = useRef(new THREE.Color(0x0d0f0e))
+  if (!scene.background || !(scene.background instanceof THREE.Color)) {
+    scene.background = bgRef.current
+  }
+  const bg = bgRef.current
 
-    if (progress < 0.15)      scene.background = DARK.clone()
-    else if (progress < 0.28) scene.background = DARK.clone().lerp(new THREE.Color('#000000'), a1)
-    else if (progress < 0.45) scene.background = new THREE.Color('#010306')
-    else if (progress < 0.62) scene.background = new THREE.Color('#030508')
-    else if (progress < 0.78) scene.background = new THREE.Color('#040310')
-    else if (progress < 0.92) scene.background = new THREE.Color('#050310').lerp(new THREE.Color('#0d0f0e'), a6)
-    else                       scene.background = new THREE.Color('#0d0f0e').lerp(WHITE, a6 * a6)
+  useFrame(() => {
+    const depth = Math.max(0, -1.8 - camera.position.y)
+    if (progress < 0.25) {
+      bg.copy(DARK)
+    } else if (progress < 0.60) {
+      _bgColorA.set('#020508')
+      bg.copy(DARK).lerp(_bgColorA, a1)
+    } else {
+      bg.set('#020508')
+    }
   })
 
   return null
@@ -458,25 +377,29 @@ function SceneBackground({ progress, a1, a6 }: { progress: number; a1: number; a
 
 // ─── UNDERWATER FOG ───────────────────────────────────────────────────────────
 
+const _fogColorA = new THREE.Color()
+const _fogColorB = new THREE.Color()
+
 function UnderwaterFog({ progress, a1, a2, a3 }: { progress: number; a1: number; a2: number; a3: number }) {
   const { scene, camera } = useThree()
+  const surfaceColor = useMemo(() => new THREE.Color(0x0d0f0e), [])
+  const deepColor    = useMemo(() => new THREE.Color(0x0a1f2e), [])
+  const tmpColor     = useMemo(() => new THREE.Color(), [])
 
   useFrame(() => {
     const depth = Math.max(0, -1.8 - camera.position.y)
-
-    if (depth > 0.05 && progress < 0.62) {
-      // Underwater fog — deepens with submersion
-      const t        = Math.min(1, depth / 10)
-      const density  = Math.min(0.12, depth * 0.014 + a2 * 0.04)
-      const fogColor = new THREE.Color('#0d2a4a').lerp(new THREE.Color('#020510'), t)
+    if (depth > 0.05) {
+      const density = Math.min(0.10, depth * 0.012 + a1 * 0.03)
+      // Lerp fog color from surface dark toward deep aquamarine as depth increases
+      const depthFactor = Math.min(1, depth / 4.0)
+      tmpColor.copy(surfaceColor).lerp(deepColor, depthFactor)
       if (scene.fog instanceof THREE.FogExp2) {
-        scene.fog.color.copy(fogColor)
+        scene.fog.color.copy(tmpColor)
         scene.fog.density = density
       } else {
-        scene.fog = new THREE.FogExp2(fogColor.getHex(), density)
+        scene.fog = new THREE.FogExp2(tmpColor.getHex(), density)
       }
-    } else if (progress < 0.15) {
-      // Act 0 surface — light horizon fog blends water edge into sky
+    } else if (progress < 0.25) {
       if (scene.fog instanceof THREE.FogExp2) {
         scene.fog.color.setHex(0x0d0f0e)
         scene.fog.density = 0.012
@@ -491,47 +414,6 @@ function UnderwaterFog({ progress, a1, a2, a3 }: { progress: number; a1: number;
   return null
 }
 
-// ─── THREE-LAYER PARTICLE DEPTH SYSTEM ───────────────────────────────────────
-// Three depth layers as specified in Act 00 surface scene.
-
-// Dust motes / pollen on the water surface — natural, no green
-function DepthParticles({ visible, mobile }: { visible: boolean; mobile: boolean }) {
-  if (!visible) return null
-
-  const scale = mobile ? 0.4 : 1
-
-  return (
-    <group>
-      {/* Layer 1 — close water-surface dust motes, pale cream */}
-      <Sparkles
-        count={Math.round(120 * scale)}
-        scale={3}
-        size={1.8}
-        speed={0.12}
-        color="#e8dfc8"
-        opacity={0.30}
-      />
-      {/* Layer 2 — mid distance, cool silver-white */}
-      <Sparkles
-        count={Math.round(400 * scale)}
-        scale={9}
-        size={0.9}
-        speed={0.07}
-        color="#c8d8e8"
-        opacity={0.18}
-      />
-      {/* Layer 3 — far, near-invisible atmosphere shimmer */}
-      <Sparkles
-        count={Math.round(200 * scale)}
-        scale={20}
-        size={0.4}
-        speed={0.03}
-        color="#a0b8cc"
-        opacity={0.10}
-      />
-    </group>
-  )
-}
 
 // ─── SCENE ROOT ───────────────────────────────────────────────────────────────
 
@@ -539,125 +421,78 @@ function Scene({ progress }: { progress: number }) {
   const tier   = useDeviceTier()
   const mobile = tier <= 1
   const acts   = useActProgress(progress)
-  const { act, a1, a2, a3, a4, a5, a6 } = acts
+  const { act, a1, a2, a3, a6 } = acts
 
-  // figureY: descends in Acts 1–2
-  const figureY = act < 1 ? -0.8 :
-    act === 1 ? THREE.MathUtils.lerp(-0.8, -5.0, a1) :
-    act === 2 ? -5.0 : 0
+  const figureY = act === 0 ? -0.8
+    : act === 1 ? THREE.MathUtils.lerp(-0.8, -5.0, a1)
+    : -5.0
 
-  // submersionDepth: 0 on surface → 1 fully submerged
-  const submersionDepth =
-    act < 1  ? 0 :
-    act === 1 ? a1 :
-    act === 2 ? 1 :
-    act === 3 ? THREE.MathUtils.lerp(1, 0, a3) : 0
-
-  const bioCount = mobile ? 200 : 600
+  const submersionDepth = act === 0 ? 0 : act === 1 ? a1 : 1
 
   return (
     <>
       <SceneBackground progress={progress} a1={a1} a6={a6} />
-      <CameraRig progress={progress} a1={a1} a2={a2} a3={a3} a4={a4} a5={a5} figureY={figureY} />
+      <CameraRig figureY={figureY} />
       <UnderwaterFog progress={progress} a1={a1} a2={a2} a3={a3} />
 
       {/* ── Lighting ── */}
-      <ambientLight intensity={0.18} color="#e8ede9" />
-      <directionalLight position={[-2, 4, 3]} intensity={0.4} color="#c8b89a" />
-      {/* Replaced sage-green fill with neutral blue-white moonlight */}
-      <pointLight position={[0, 2, -2]} intensity={0.6} color="#c8d8f0" />
-      <pointLight position={[2, 0, 2]}  intensity={0.20} color="#8fb5c4" />
+      <ambientLight intensity={0.55} color="#e8ede9" />
+      <directionalLight position={[-2, 4, 3]} intensity={0.8} color="#c8d8b8" />
+      <pointLight position={[0, 2, -2]} intensity={1.1} color="#c8d8f0" />
+      <pointLight position={[2, 0, 2]}  intensity={0.45} color="#8fb5c4" />
+      <pointLight position={[-2, 1, 3]} intensity={0.35} color="#7fa882" distance={12} />
 
-      {/* Top light during submersion */}
-      {(act === 1 || act === 2) && (
-        <pointLight position={[0, 4, 2]} intensity={2.5} color={WHITE} distance={14} />
+      {/* Stars — Act 0 surface only */}
+      {act === 0 && <StarField opacity={1.0} mobile={mobile} />}
+
+      {/* Underwater lighting once submerged */}
+      {act >= 1 && <UnderwaterLighting depth={submersionDepth} />}
+
+      {/* Golden rim when facing camera (Act 2+) */}
+      {act >= 2 && (
+        <pointLight position={[0, 0, 2.5]} color="#c9a96e"
+          intensity={0.3 + a2 * 0.5} distance={6} decay={2} />
       )}
-      {/* Act 4: golden rim from front */}
-      {act === 4 && (
-        <pointLight
-          position={[0, 0, 2.5]}
-          color="#c9a96e"
-          intensity={0.3 + a4 * 0.4}
-          distance={6}
-          decay={2}
+
+      {/* ── Figure (wrapped in Caustics for Act 1 & 2) ── */}
+      {(act === 1 || act === 2) ? (
+        <Caustics
+          intensity={0.06}
+          color="#8fb5c4"
+          lightSource={[-2, 8, 2]}
+          ior={1.4}
+          frames={Infinity}
+          causticsOnly={false}
+          backside={false}
+        >
+          <Figure
+            progress={progress}
+            a1={a1} a2={a2} a3={a3} a5={a2}
+            submersionDepth={submersionDepth}
+          />
+        </Caustics>
+      ) : (
+        <Figure
+          progress={progress}
+          a1={a1} a2={a2} a3={a3} a5={a2}
+          submersionDepth={submersionDepth}
         />
       )}
-      {/* Underwater rig (Acts 1–2) */}
+
+      {/* ── BiolumiParticles — Act 1 & 2 underwater ── */}
       {(act === 1 || act === 2) && (
-        <UnderwaterLighting depth={submersionDepth} />
-      )}
-      <PalmGlow act5Progress={a5} act6Progress={a6} />
-
-      {/* ── Stars: Act 0–1 — 3-layer realistic night sky with scroll fade ── */}
-      {act <= 1 && (
-        <StarField
-          opacity={act === 0 ? 1.0 : Math.max(0, 1.0 - a1 * 7)}
-          mobile={mobile}
-        />
-      )}
-
-      {/* ── Horizon gradient: Act 0 — blends water plane into sky ── */}
-      <HorizonGradient visible={act === 0} />
-
-      {/* ── Surface particles: Acts 0–1 ── */}
-      <DepthParticles visible={act <= 1} mobile={mobile} />
-
-      {/* ── Figure ── */}
-      <Figure
-        progress={progress}
-        a1={a1} a2={a2} a3={a3} a5={a5}
-        submersionDepth={submersionDepth}
-      />
-
-      {/* ── Water surface ── */}
-      <WaterPlane
-        visible={act <= 1}
-        distortion={act === 1 ? 1.2 + a1 * 3.5 : 1.2}
-      />
-
-      {/* ── Surface from below + bubbles: Acts 1–2 ── */}
-      <SurfaceFromBelow visible={act === 1 || act === 2} />
-      <Bubbles
-        visible={act === 1 && a1 > 0.1}
-        figureY={figureY}
-      />
-
-      {/* ── Bioluminescent particles: Act 2 ── */}
-      {(act === 2 || (act === 3 && a3 < 0.3)) && (
         <BiolumiParticles
-          opacity={act === 2 ? a2 : THREE.MathUtils.lerp(1, 0, a3 / 0.3)}
-          count={bioCount}
+          opacity={act === 1 ? a1 : 1}
+          count={mobile ? 200 : 600}
         />
       )}
 
-      {/* ── Torus portal rings: Acts 3–5 ── */}
-      <TorusRings act3Progress={a3} act4Progress={a4} act5Progress={a5} />
+      {/* ── Water surface — Act 0 only ── */}
+      <WaterPlane
+        visible={act === 0}
+        distortion={1.8}
+      />
 
-      {/* ── Sacred geometry wireframes: Act 3 ── */}
-      <SacredGeo act3Progress={a3} />
-
-      {/* ── Warp streaks canvas overlay: Act 4 ── */}
-      {(act === 4 || (act === 5 && a5 < 0.3)) && (
-        <WarpStreaks progress={progress} acts={acts} mobile={mobile} />
-      )}
-
-      {/* ── Post-processing ── */}
-      <EffectComposer>
-        <Bloom
-          intensity={act >= 5 ? 2.0 + a6 * 2.0 : act <= 2 ? 1.2 : 0.8}
-          luminanceThreshold={0.15}
-          luminanceSmoothing={0.9}
-          mipmapBlur
-        />
-        <ChromaticAberration
-          blendFunction={BlendFunction.NORMAL}
-          offset={[
-            act === 4 ? 0.003 : 0.001,
-            act === 4 ? 0.003 : 0.001,
-          ]}
-        />
-        <Vignette offset={0.38} darkness={0.65} blendFunction={BlendFunction.NORMAL} />
-      </EffectComposer>
     </>
   )
 }
@@ -690,7 +525,7 @@ function HeroOverlay({ opacity }: { opacity: number }) {
             fontSize: '11px', letterSpacing: '3px', textTransform: 'uppercase', color: 'var(--sage)',
           }}>
             <span style={{ display: 'inline-block', width: 20, height: 1, background: 'var(--sage)', opacity: 0.6 }} />
-            yoga · breathwork · movement
+            psychological · social · professional
           </span>
           <span style={{
             fontFamily: 'var(--font-body, sans-serif)',
@@ -731,7 +566,7 @@ function HeroOverlay({ opacity }: { opacity: number }) {
         }}
       >
         <Link
-          href="/book"
+          href="/contact"
           style={{
             display:         'inline-block',
             fontFamily:      'var(--font-body, sans-serif)',
@@ -746,7 +581,7 @@ function HeroOverlay({ opacity }: { opacity: number }) {
             textDecoration:  'none',
           }}
         >
-          Begin your practice →
+          Work with me →
         </Link>
       </motion.div>
 
@@ -784,71 +619,237 @@ function HeroOverlay({ opacity }: { opacity: number }) {
 
 // ─── MAIN EXPORT ──────────────────────────────────────────────────────────────
 
-export default function SubmersionJourney() {
-  const { containerRef, progress } = useScrollProgress()
-  const acts                       = useActProgress(progress)
-  const tier                       = useDeviceTier()
-  const mobile                     = tier <= 1
+// ─── CINEMATIC EASE ───────────────────────────────────────────────────────────
+// Cubic S-curve: slow open (Act 0 breathe), full speed mid, slow close (Act 6 bloom)
+function cinematicEase(t: number): number {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
+}
 
-  const heroOpacity    = Math.max(0, 1 - progress / 0.12)
-  const whiteFlashOpacity = acts.a6 > 0.7 ? (acts.a6 - 0.7) / 0.3 : 0
+export default function SubmersionJourney() {
+  const tier   = useDeviceTier()
+  const mobile = tier <= 1
+
+  // ── Virtual scroll position (hijacked — wheel events drive this, not native scroll) ──
+  // Total virtual pixels of travel = full animation 0→1.
+  const VIRTUAL_TOTAL  = 3500
+  const LAMBDA_SCROLL  = 5          // damp speed: ~1.0 s settle (Curtana cinematic)
+
+  const [virtualProgress, setVirtualProgress] = React.useState(0)
+  const virtualTarget   = React.useRef(0)
+  const virtualCurrent  = React.useRef(0)
+  const journeyDone     = React.useRef(false)
+
+  // ── Cinematic intro — plays automatically on mount ───────────────────────
+  // Time-based 0→1. The moment the user scrolls, cinematicActive flips false
+  // and the virtual scroll (above) takes over from wherever cinematic reached.
+  const [cinematicProgress, setCinematicProgress] = React.useState(0)
+  const [cinematicActive,   setCinematicActive]   = React.useState(true)
+  const rafCinema           = React.useRef<number>(0)
+  const startTime           = React.useRef<number | null>(null)
+  // Refs readable from RAF callbacks without stale-closure issues
+  const cinematicActiveRef  = React.useRef(true)
+  const cinematicProgRef    = React.useRef(0)
+  const cancelCinematicRef  = React.useRef<() => void>(() => {})
+  React.useEffect(() => { cinematicActiveRef.current = cinematicActive },   [cinematicActive])
+  React.useEffect(() => { cinematicProgRef.current   = cinematicProgress }, [cinematicProgress])
+
+  const HOLD_MS     = 1800
+  const DURATION_MS = 12000
+
+  React.useEffect(() => {
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (reduced) { cinematicActiveRef.current = false; setCinematicActive(false); return }
+
+    const cancel = () => {
+      cinematicActiveRef.current = false   // immediate — RAF reads this on next tick
+      setCinematicActive(false)
+      cancelAnimationFrame(rafCinema.current)
+    }
+    cancelCinematicRef.current = cancel
+
+    // keydown still cancels cinematic (wheel is handled by the hijack effect below)
+    window.addEventListener('keydown', cancel, { once: true })
+
+    const tick = (ts: number) => {
+      if (startTime.current === null) startTime.current = ts
+      const elapsed = ts - startTime.current
+
+      if (elapsed > HOLD_MS) {
+        const t = Math.min(1, (elapsed - HOLD_MS) / DURATION_MS)
+        const p = cinematicEase(t)
+        setCinematicProgress(p)
+        cinematicProgRef.current = p
+
+        if (t >= 1) {
+          // Cinematic played through to end — treat as journey complete
+          journeyDone.current      = true
+          virtualTarget.current    = VIRTUAL_TOTAL
+          virtualCurrent.current   = VIRTUAL_TOTAL
+          setVirtualProgress(1)
+          document.body.style.overflow = ''
+          cancel()
+          const wrap = document.getElementById('submersion-wrap')
+          if (wrap) {
+            window.scrollTo(0, 0)
+            setTimeout(() => window.dispatchEvent(
+              new CustomEvent('smooth-scroll-to', { detail: { y: wrap.offsetTop + wrap.offsetHeight } })
+            ), 80)
+          }
+          return
+        }
+      }
+
+      rafCinema.current = requestAnimationFrame(tick)
+    }
+
+    rafCinema.current = requestAnimationFrame(tick)
+
+    return () => {
+      cancel()
+      window.removeEventListener('keydown', cancel)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // ── Scroll hijack — intercepts wheel/touch BEFORE Lenis, drives virtual scroll ──
+  // body overflow is locked here; restored when virtual progress reaches 1.
+  React.useEffect(() => {
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
+    const seedFromCinematic = () => {
+      if (!cinematicActiveRef.current) return
+      cancelCinematicRef.current()
+      const seedPx = cinematicProgRef.current * VIRTUAL_TOTAL
+      virtualTarget.current  = seedPx
+      virtualCurrent.current = seedPx
+    }
+
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      e.stopPropagation()   // prevent Lenis accumulating scroll while we're hijacking
+      seedFromCinematic()
+      if (journeyDone.current) return
+      virtualTarget.current = Math.max(0, Math.min(VIRTUAL_TOTAL, virtualTarget.current + e.deltaY))
+    }
+
+    let touchY = 0
+    const onTouchStart = (e: TouchEvent) => { touchY = e.touches[0].clientY }
+    const onTouchMove  = (e: TouchEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      seedFromCinematic()
+      if (journeyDone.current) return
+      const dy = touchY - e.touches[0].clientY
+      touchY = e.touches[0].clientY
+      virtualTarget.current = Math.max(0, Math.min(VIRTUAL_TOTAL, virtualTarget.current + dy * 2))
+    }
+
+    // capture:true fires before Lenis's bubble-phase listener
+    window.addEventListener('wheel',      onWheel,      { passive: false, capture: true })
+    window.addEventListener('touchstart', onTouchStart, { passive: true })
+    window.addEventListener('touchmove',  onTouchMove,  { passive: false })
+
+    let lastTs = -1
+    let rafId  = 0
+
+    const tick = (ts: number) => {
+      if (journeyDone.current) return
+
+      const dt = lastTs < 0 ? 1 / 60 : Math.min((ts - lastTs) / 1000, 0.1)
+      lastTs = ts
+
+      // Only advance virtual progress once user has taken over from cinematic
+      if (!cinematicActiveRef.current) {
+        virtualCurrent.current = damp(virtualCurrent.current, virtualTarget.current, LAMBDA_SCROLL, dt)
+        const p = Math.min(1, virtualCurrent.current / VIRTUAL_TOTAL)
+        setVirtualProgress(p)
+
+        if (p >= 0.995) {
+          journeyDone.current = true
+          document.body.style.overflow = ''
+          window.scrollTo(0, 0)
+          const wrap = document.getElementById('submersion-wrap')
+          if (wrap) {
+            setTimeout(() => window.dispatchEvent(
+              new CustomEvent('smooth-scroll-to', { detail: { y: wrap.offsetTop + wrap.offsetHeight } })
+            ), 80)
+          }
+          return
+        }
+      }
+
+      rafId = requestAnimationFrame(tick)
+    }
+    rafId = requestAnimationFrame(tick)
+
+    return () => {
+      cancelAnimationFrame(rafId)
+      window.removeEventListener('wheel',      onWheel,      { capture: true })
+      window.removeEventListener('touchstart', onTouchStart)
+      window.removeEventListener('touchmove',  onTouchMove)
+      if (!journeyDone.current) document.body.style.overflow = prevOverflow
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // sceneProgress: cinematic while playing, virtual scroll after user takes over
+  const sceneProgress = cinematicActive
+    ? cinematicProgress
+    : Math.min(virtualProgress, 0.98)
+
+  const acts = useActProgress(sceneProgress)
+
+  const heroOpacity = Math.max(0, 1 - sceneProgress / 0.12)
 
   return (
-    <div
-      ref={containerRef}
-      id="submersion-wrap"
-      style={{ height: '800vh', position: 'relative' }}
-    >
+    <>
+      {/* ── Fixed 3D Canvas — stays visible behind all page content ── */}
       <div
         style={{
-          position:   'sticky',
-          top:        0,
-          height:     '100vh',
-          background: 'var(--bg)',
-          zIndex:     1,
-          overflow:   'hidden',
+          position:      'fixed',
+          inset:         0,
+          zIndex:        0,
+          pointerEvents: 'none',
         }}
       >
-        {/* ── 3D Canvas ── */}
-        <div
-          style={{
-            position:     'absolute',
-            top:          72,
-            left:         'clamp(12px, 1.5vw, 20px)',
-            right:        'clamp(12px, 1.5vw, 20px)',
-            bottom:       52,
-            borderRadius: 18,
-            overflow:     'hidden',
+        <Canvas
+          style={{ width: '100%', height: '100%', display: 'block' }}
+          dpr={[1, 1.5]}
+          camera={{ position: [0, 1.8, 6], fov: 55, near: 0.1, far: 2000 }}
+          gl={{
+            antialias:           false,
+            powerPreference:     'high-performance',
+            toneMapping:         THREE.ACESFilmicToneMapping,
+            toneMappingExposure: 2.2,
+            outputColorSpace:    THREE.SRGBColorSpace,
           }}
         >
-          <Canvas
-            style={{ width: '100%', height: '100%', display: 'block' }}
-            camera={{ position: [0, 1.8, 6], fov: 55, near: 0.1, far: 2000 }}
-            gl={{
-              antialias:           true,
-              toneMapping:         THREE.ACESFilmicToneMapping,
-              toneMappingExposure: 1.2,
-              outputColorSpace:    THREE.SRGBColorSpace,
-            }}
-          >
-            <Suspense fallback={null}>
-              <Scene progress={progress} />
-            </Suspense>
-          </Canvas>
+          <Suspense fallback={null}>
+            <Scene progress={sceneProgress} />
+          </Suspense>
+        </Canvas>
 
-          {/* ── Warp streaks canvas overlay ── */}
-          <WarpStreaks progress={progress} acts={acts} mobile={mobile} />
-
-          {/* ── Chapter text overlays ── */}
-          <JourneyChapters progress={progress} />
-
-          {/* ── White bloom ── */}
-          <WhiteFlash opacity={whiteFlashOpacity} />
-        </div>
-
-        {/* ── Hero overlay (fades with scroll) ── */}
-        <HeroOverlay opacity={heroOpacity} />
       </div>
-    </div>
+
+      {/* ── Spacer — holds page height so content below lands correctly after journey ── */}
+      <div
+        id="submersion-wrap"
+        style={{ height: '100vh', position: 'relative', zIndex: 1 }}
+      >
+        <div
+          style={{
+            position: 'sticky',
+            top:      0,
+            height:   '100vh',
+            zIndex:   1,
+            overflow: 'hidden',
+          }}
+        >
+          {/* ── Hero overlay (fades with scroll) ── */}
+          <HeroOverlay opacity={heroOpacity} />
+        </div>
+      </div>
+    </>
   )
 }

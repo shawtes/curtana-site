@@ -117,7 +117,7 @@ export default function Nav() {
 
           <Link
             ref={bookRef}
-            href="/book"
+            href="/contact"
             style={{
               fontFamily: 'var(--font-body), sans-serif',
               fontSize: '13px',
@@ -141,7 +141,7 @@ export default function Nav() {
               e.currentTarget.style.boxShadow = 'none'
             }}
           >
-            Book a session
+            Work with me
           </Link>
         </nav>
 
@@ -254,7 +254,7 @@ export default function Nav() {
                   style={{ marginTop: 48 }}
                 >
                   <Link
-                    href="/book"
+                    href="/contact"
                     style={{
                       fontFamily: 'var(--font-body), sans-serif',
                       fontSize: '13px',
@@ -269,7 +269,7 @@ export default function Nav() {
                       display: 'inline-block',
                     }}
                   >
-                    Book a session
+                    Work with me
                   </Link>
                 </motion.li>
               </ul>
