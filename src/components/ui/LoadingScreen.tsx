@@ -181,8 +181,8 @@ export default function LoadingScreen({ onComplete }: { onComplete: () => void }
                   width="300"
                   style={{ display: 'block', margin: '0 auto', overflow: 'visible' }}
                 >
-                  {/* ── Left cup — tilted to pour, emptying ── */}
-                  <g transform="translate(58, 0) rotate(-32, 0, 34)">
+                  {/* ── Left cup — gently tilted to pour, emptying ── */}
+                  <g transform="translate(60, 10) rotate(-18, 0, 34)">
                     {/* Water fill */}
                     {leftWaterPath && (
                       <path d={leftWaterPath} fill="rgba(127,168,130,0.40)" />
@@ -236,18 +236,18 @@ export default function LoadingScreen({ onComplete }: { onComplete: () => void }
                     />
                   </g>
 
-                  {/* ── Water stream — natural arc from spout to right cup ── */}
+                  {/* ── Water stream — gentle arc from spout to right cup ── */}
                   <path
-                    d="M 80 8 C 120 -16 180 30 210 78"
+                    d="M 96 18 C 130 4 185 40 212 78"
                     fill="none"
                     stroke="rgba(127,168,130,0.55)"
                     strokeWidth="2"
                     strokeLinecap="round"
-                    strokeDasharray="160"
+                    strokeDasharray="150"
                   >
                     <animate
                       attributeName="stroke-dashoffset"
-                      from="160" to="0"
+                      from="150" to="0"
                       dur="1.2s"
                       repeatCount="indefinite"
                     />
@@ -260,16 +260,16 @@ export default function LoadingScreen({ onComplete }: { onComplete: () => void }
                   </path>
                   {/* Secondary thin stream for depth */}
                   <path
-                    d="M 82 10 C 118 -12 175 34 208 80"
+                    d="M 98 20 C 128 8 182 44 210 80"
                     fill="none"
                     stroke="rgba(143,181,196,0.25)"
                     strokeWidth="1"
                     strokeLinecap="round"
-                    strokeDasharray="155"
+                    strokeDasharray="145"
                   >
                     <animate
                       attributeName="stroke-dashoffset"
-                      from="155" to="0"
+                      from="145" to="0"
                       dur="1.2s"
                       begin="0.15s"
                       repeatCount="indefinite"
@@ -277,13 +277,13 @@ export default function LoadingScreen({ onComplete }: { onComplete: () => void }
                   </path>
 
                   {/* Drop landing + ripple in right cup */}
-                  <circle cx="212" cy="84" r="2" fill="rgba(127,168,130,0.6)">
+                  <circle cx="214" cy="84" r="2" fill="rgba(127,168,130,0.6)">
                     <animate attributeName="opacity" values="0;1;0"      dur="1.2s" repeatCount="indefinite" />
                     <animate attributeName="cy"      values="78;92;92"   dur="1.2s" repeatCount="indefinite" />
                     <animate attributeName="r"       values="2;1.2;1.2" dur="1.2s" repeatCount="indefinite" />
                   </circle>
                   {/* Ripple ring */}
-                  <ellipse cx="212" cy="92" rx="0" ry="0" fill="none"
+                  <ellipse cx="214" cy="92" rx="0" ry="0" fill="none"
                     stroke="rgba(143,181,196,0.35)" strokeWidth="0.6">
                     <animate attributeName="rx"      values="0;8;12"   dur="1.2s" repeatCount="indefinite" />
                     <animate attributeName="ry"      values="0;2;3"    dur="1.2s" repeatCount="indefinite" />

@@ -23,7 +23,6 @@ import * as THREE from 'three'
 import Link from 'next/link'
 import { motion } from 'framer-motion'
 
-import { damp }                    from '@/lib/mathUtils'
 import { useActProgress }          from '@/hooks/useActProgress'
 import { useDeviceTier }           from '@/hooks/useDeviceTier'
 import { RyJeaneCharacter, UnderwaterLighting } from './RyJeaneCharacter'
@@ -40,9 +39,23 @@ const DARK  = new THREE.Color('#0d1210')
 // ─── BREATH EASE ──────────────────────────────────────────────────────────────
 const BREATH_EASE: [number, number, number, number] = [0.16, 1, 0.3, 1]
 
+// ─── GUIDE WIRE (invisible CatmullRom3 spline) ──────────────────────────────
+// The character follows this smooth 3D path through the entire journey.
+// Points: surface → descend → deep → turn zone → hold
+const GUIDE_POINTS = [
+  new THREE.Vector3(0,   -0.8,  0),     // 0.00 — surface, meditating
+  new THREE.Vector3(0,   -0.8,  0),     // 0.10 — hold on surface
+  new THREE.Vector3(0.2, -1.8, -0.3),   // 0.25 — begin descent
+  new THREE.Vector3(0.1, -3.2, -0.1),   // 0.40 — mid-descent, slight drift
+  new THREE.Vector3(-0.1,-4.5,  0.1),   // 0.55 — approaching deep
+  new THREE.Vector3(0,   -5.0,  0),     // 0.65 — deep position, turn starts
+  new THREE.Vector3(0,   -5.0,  0),     // 0.80 — turn completing
+  new THREE.Vector3(0,   -5.0,  0),     // 1.00 — hold, front-facing
+]
+const GUIDE_CURVE = new THREE.CatmullRomCurve3(GUIDE_POINTS, false, 'centripetal', 0.5)
+
 // ─── FIGURE WRAPPER ───────────────────────────────────────────────────────────
-// Handles position, rotation, scale changes across all acts.
-// RyJeaneCharacter inside handles textures/materials/hair.
+// Follows the invisible guide wire spline. Rotation handled per-act.
 
 function Figure({
   progress,
@@ -53,50 +66,31 @@ function Figure({
   a1: number; a2: number; a3: number; a5: number
   submersionDepth: number
 }) {
-  const groupRef   = useRef<THREE.Group>(null)
-  const prevProg   = useRef(progress)
-  const tumbleX    = useRef(0)
-  const tumbleZ    = useRef(0)
-  const turnY      = useRef(0)  // accumulated Y rotation for Act 5 turn
+  const groupRef = useRef<THREE.Group>(null)
+  const turnY    = useRef(0)
+  const posVec   = useRef(new THREE.Vector3())
 
   useFrame(({ clock }) => {
     if (!groupRef.current) return
-    const t     = clock.elapsedTime
+    const t      = clock.elapsedTime
     const breath = Math.sin(t * 0.45) * 0.008
 
-    // Track scroll delta for tumble
-    const delta  = progress - prevProg.current
-    prevProg.current = progress
+    // Sample position from guide wire
+    GUIDE_CURVE.getPoint(Math.min(1, progress), posVec.current)
+    groupRef.current.position.copy(posVec.current)
+    groupRef.current.scale.setScalar(0.011 * (1 + breath))
 
-    if (progress < 0.25) {
-      // Act 0: lotus pose on surface, back to camera
-      groupRef.current.position.set(0, -0.8, 0)
+    if (progress < 0.60) {
+      // Act 0–1: back to camera
       groupRef.current.rotation.set(0, 0, 0)
-      groupRef.current.scale.setScalar(0.011 * (1 + breath))
-      tumbleX.current = 0
-      tumbleZ.current = 0
-
-    } else if (progress < 0.60) {
-      // Act 1: descend -0.8 → -5.0
-      const figY = THREE.MathUtils.lerp(-0.8, -5.0, a1)
-      groupRef.current.position.set(0, figY, 0)
-      groupRef.current.rotation.set(0, 0, 0)
-      groupRef.current.scale.setScalar(0.011 * (1 + breath))
-      tumbleX.current = 0
-      tumbleZ.current = 0
-
+      turnY.current = 0
     } else if (progress < 0.85) {
       // Act 2: The Turn — rotate π on Y (back-facing → front-facing)
       turnY.current = THREE.MathUtils.lerp(turnY.current, a2 * Math.PI, 0.04)
       groupRef.current.rotation.set(0, turnY.current, 0)
-      groupRef.current.position.set(0, -5.0, 0)
-      groupRef.current.scale.setScalar(0.011 * (1 + breath))
-
     } else {
       // Act 3: front-facing, hold
       groupRef.current.rotation.set(0, Math.PI, 0)
-      groupRef.current.position.set(0, -5.0, 0)
-      groupRef.current.scale.setScalar(0.011 * (1 + breath))
     }
   })
 
@@ -619,163 +613,62 @@ function HeroOverlay({ opacity }: { opacity: number }) {
 
 // ─── MAIN EXPORT ──────────────────────────────────────────────────────────────
 
-// ─── CINEMATIC EASE ───────────────────────────────────────────────────────────
-// Cubic S-curve: slow open (Act 0 breathe), full speed mid, slow close (Act 6 bloom)
-function cinematicEase(t: number): number {
-  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
-}
-
 export default function SubmersionJourney() {
   const tier   = useDeviceTier()
   const mobile = tier <= 1
 
-  // ── Virtual scroll position (hijacked — wheel events drive this, not native scroll) ──
-  // Total virtual pixels of travel = full animation 0→1.
-  const VIRTUAL_TOTAL  = 3500
-  const LAMBDA_SCROLL  = 5          // damp speed: ~1.0 s settle (Curtana cinematic)
+  // ── Pure time-based auto-animation ─────────────────────────────────────────
+  // No scroll hijack. After 2s hold on surface, character auto-follows the
+  // invisible guide wire through the entire journey. Scroll is locked during
+  // animation, then released when the journey completes.
+  const HOLD_MS     = 2000   // time on surface before auto-advance starts
+  const JOURNEY_MS  = 10000  // total journey animation time (10s)
 
-  const [virtualProgress, setVirtualProgress] = React.useState(0)
-  const virtualTarget   = React.useRef(0)
-  const virtualCurrent  = React.useRef(0)
-  const journeyDone     = React.useRef(false)
-
-  // ── Auto-advance bloom after scroll releases at 0.85 ──
-  // Smoothly drives scene from 0.85 → 1.0 so White Bloom plays without scroll lock.
-  const RELEASE_THRESHOLD = 0.85
-  const [bloomOverride, setBloomOverride] = React.useState<number | null>(null)
-  const [bloomActive, setBloomActive] = React.useState(false)
-  const bloomStartRef = React.useRef<number | null>(null)
-  const BLOOM_DURATION_MS = 1500
-
-  // ── Cinematic intro — plays automatically on mount ───────────────────────
-  // Time-based 0→1. The moment the user scrolls, cinematicActive flips false
-  // and the virtual scroll (above) takes over from wherever cinematic reached.
-  const [cinematicProgress, setCinematicProgress] = React.useState(0)
-  const [cinematicActive,   setCinematicActive]   = React.useState(true)
-  const rafCinema           = React.useRef<number>(0)
-  const startTime           = React.useRef<number | null>(null)
-  // Refs readable from RAF callbacks without stale-closure issues
-  const cinematicActiveRef  = React.useRef(true)
-  const cinematicProgRef    = React.useRef(0)
-  const cancelCinematicRef  = React.useRef<() => void>(() => {})
-  React.useEffect(() => { cinematicActiveRef.current = cinematicActive },   [cinematicActive])
-  React.useEffect(() => { cinematicProgRef.current   = cinematicProgress }, [cinematicProgress])
-
-  const HOLD_MS     = 1800
-  const DURATION_MS = 12000
+  const [sceneProgress, setSceneProgress] = React.useState(0)
+  const journeyDone  = React.useRef(false)
+  const startTimeRef = React.useRef<number | null>(null)
+  const rafRef       = React.useRef<number>(0)
 
   React.useEffect(() => {
     const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    if (reduced) { cinematicActiveRef.current = false; setCinematicActive(false); return }
 
-    const cancel = () => {
-      cinematicActiveRef.current = false   // immediate — RAF reads this on next tick
-      setCinematicActive(false)
-      cancelAnimationFrame(rafCinema.current)
-    }
-    cancelCinematicRef.current = cancel
-
-    // keydown still cancels cinematic (wheel is handled by the hijack effect below)
-    window.addEventListener('keydown', cancel, { once: true })
-
-    const tick = (ts: number) => {
-      if (startTime.current === null) startTime.current = ts
-      const elapsed = ts - startTime.current
-
-      if (elapsed > HOLD_MS) {
-        const t = Math.min(1, (elapsed - HOLD_MS) / DURATION_MS)
-        const p = cinematicEase(t)
-        setCinematicProgress(p)
-        cinematicProgRef.current = p
-
-        if (p >= RELEASE_THRESHOLD) {
-          // Turn complete — release scroll, auto-advance bloom visually
-          journeyDone.current      = true
-          virtualTarget.current    = RELEASE_THRESHOLD * VIRTUAL_TOTAL
-          virtualCurrent.current   = RELEASE_THRESHOLD * VIRTUAL_TOTAL
-          setVirtualProgress(RELEASE_THRESHOLD)
-          document.body.style.overflow = ''
-          cancel()
-          bloomStartRef.current = performance.now()
-          setBloomActive(true)
-          const wrap = document.getElementById('submersion-wrap')
-          if (wrap) {
-            window.scrollTo(0, 0)
-            setTimeout(() => window.dispatchEvent(
-              new CustomEvent('smooth-scroll-to', { detail: { y: wrap.offsetTop + wrap.offsetHeight } })
-            ), 80)
-          }
-          return
-        }
-      }
-
-      rafCinema.current = requestAnimationFrame(tick)
-    }
-
-    rafCinema.current = requestAnimationFrame(tick)
-
-    return () => {
-      cancel()
-      window.removeEventListener('keydown', cancel)
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  // ── Scroll hijack — intercepts wheel/touch BEFORE Lenis, drives virtual scroll ──
-  // body overflow is locked here; restored when virtual progress reaches 1.
-  React.useEffect(() => {
+    // Lock scroll during the journey
     const prevOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
 
-    const seedFromCinematic = () => {
-      if (!cinematicActiveRef.current) return
-      cancelCinematicRef.current()
-      const seedPx = cinematicProgRef.current * VIRTUAL_TOTAL
-      virtualTarget.current  = seedPx
-      virtualCurrent.current = seedPx
+    if (reduced) {
+      // Skip animation entirely
+      setSceneProgress(1)
+      journeyDone.current = true
+      document.body.style.overflow = prevOverflow
+      // Scroll past hero
+      setTimeout(() => {
+        const wrap = document.getElementById('submersion-wrap')
+        if (wrap) {
+          window.scrollTo(0, 0)
+          window.dispatchEvent(
+            new CustomEvent('smooth-scroll-to', { detail: { y: wrap.offsetTop + wrap.offsetHeight } })
+          )
+        }
+      }, 100)
+      return
     }
-
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault()
-      e.stopPropagation()   // prevent Lenis accumulating scroll while we're hijacking
-      seedFromCinematic()
-      if (journeyDone.current) return
-      virtualTarget.current = Math.max(0, Math.min(VIRTUAL_TOTAL, virtualTarget.current + e.deltaY))
-    }
-
-    let touchY = 0
-    const onTouchStart = (e: TouchEvent) => { touchY = e.touches[0].clientY }
-    const onTouchMove  = (e: TouchEvent) => {
-      e.preventDefault()
-      e.stopPropagation()
-      seedFromCinematic()
-      if (journeyDone.current) return
-      const dy = touchY - e.touches[0].clientY
-      touchY = e.touches[0].clientY
-      virtualTarget.current = Math.max(0, Math.min(VIRTUAL_TOTAL, virtualTarget.current + dy * 2))
-    }
-
-    // capture:true fires before Lenis's bubble-phase listener
-    window.addEventListener('wheel',      onWheel,      { passive: false, capture: true })
-    window.addEventListener('touchstart', onTouchStart, { passive: true })
-    window.addEventListener('touchmove',  onTouchMove,  { passive: false })
-
-    let lastTs = -1
-    let rafId  = 0
 
     const tick = (ts: number) => {
-      if (journeyDone.current) return
+      if (startTimeRef.current === null) startTimeRef.current = ts
+      const elapsed = ts - startTimeRef.current
 
-      const dt = lastTs < 0 ? 1 / 60 : Math.min((ts - lastTs) / 1000, 0.1)
-      lastTs = ts
+      if (elapsed <= HOLD_MS) {
+        // Hold on surface
+        setSceneProgress(0)
+      } else {
+        const journeyElapsed = elapsed - HOLD_MS
+        const t = Math.min(1, journeyElapsed / JOURNEY_MS)
+        // Cinematic S-curve ease
+        const p = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
+        setSceneProgress(p)
 
-      // Only advance virtual progress once user has taken over from cinematic
-      if (!cinematicActiveRef.current) {
-        virtualCurrent.current = damp(virtualCurrent.current, virtualTarget.current, LAMBDA_SCROLL, dt)
-        const p = Math.min(1, virtualCurrent.current / VIRTUAL_TOTAL)
-        setVirtualProgress(p)
-
-        if (p >= RELEASE_THRESHOLD) {
+        if (t >= 1 && !journeyDone.current) {
           journeyDone.current = true
           document.body.style.overflow = ''
           window.scrollTo(0, 0)
@@ -785,50 +678,21 @@ export default function SubmersionJourney() {
               new CustomEvent('smooth-scroll-to', { detail: { y: wrap.offsetTop + wrap.offsetHeight } })
             ), 80)
           }
-          // Start auto-advancing White Bloom visually
-          bloomStartRef.current = performance.now()
-          setBloomActive(true)
           return
         }
       }
 
-      rafId = requestAnimationFrame(tick)
+      rafRef.current = requestAnimationFrame(tick)
     }
-    rafId = requestAnimationFrame(tick)
+
+    rafRef.current = requestAnimationFrame(tick)
 
     return () => {
-      cancelAnimationFrame(rafId)
-      window.removeEventListener('wheel',      onWheel,      { capture: true })
-      window.removeEventListener('touchstart', onTouchStart)
-      window.removeEventListener('touchmove',  onTouchMove)
+      cancelAnimationFrame(rafRef.current)
       if (!journeyDone.current) document.body.style.overflow = prevOverflow
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  // ── Auto-advance bloom: once scroll releases at 0.85, animate 0.85 → 1.0 ──
-  React.useEffect(() => {
-    if (!bloomActive || bloomStartRef.current === null) return
-    let rafId = 0
-    const tick = (ts: number) => {
-      const elapsed = ts - bloomStartRef.current!
-      const t = Math.min(1, elapsed / BLOOM_DURATION_MS)
-      // Ease-out for gentle bloom
-      const eased = 1 - Math.pow(1 - t, 3)
-      setBloomOverride(RELEASE_THRESHOLD + eased * (1 - RELEASE_THRESHOLD))
-      if (t < 1) rafId = requestAnimationFrame(tick)
-    }
-    rafId = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(rafId)
-  }, [bloomActive])
-
-  // sceneProgress: cinematic while playing, virtual scroll after user takes over,
-  // bloomOverride once scroll is released at end of The Turn
-  const sceneProgress = bloomOverride !== null
-    ? bloomOverride
-    : cinematicActive
-      ? cinematicProgress
-      : Math.min(virtualProgress, 0.98)
 
   const acts = useActProgress(sceneProgress)
 
