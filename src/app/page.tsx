@@ -62,7 +62,7 @@ const SERVICES = [
     subtitle: 'Confidence in every room.',
     duration: '1:1 or group \u00b7 in-person or virtual',
     description:
-      'Improve confidence and communication skills in romantic and platonic relationships. Through ethical influence techniques and immersive social practice, you’ll move through the world with ease, warmth, and genuine presence.',
+      'Improve confidence and communication skills in romantic and platonic relationships. Through ethical influence techniques and immersive social practice, you\u2019ll move through the world with ease, warmth, and genuine presence.',
     includes: [
       'Confidence & communication frameworks',
       'Ethical flirting & attraction dynamics',
@@ -251,10 +251,10 @@ export default function HomePage() {
             <p style={{
               fontFamily: 'var(--font-body), sans-serif',
               fontSize: 'clamp(14px, 1.5vw, 16px)', fontWeight: 300,
-              color: ‘var(--text)’, lineHeight: 1.9, marginBottom: 28,
+              color: 'var(--text)', lineHeight: 1.9, marginBottom: 28,
             }}>
-              I’m Curtana. I work with individuals and organisations on the problems
-              they can’t talk about openly — psychological wellbeing, social
+              I&apos;m Curtana. I work with individuals and organisations on the problems
+              they can&apos;t talk about openly — psychological wellbeing, social
               confidence, and professional situations that require complete discretion.
             </p>
           </ScrollReveal>
@@ -266,7 +266,7 @@ export default function HomePage() {
               color: 'var(--text)', lineHeight: 1.9, marginBottom: 44,
             }}>
               Every engagement is tailored. There is no template, no generic programme.
-              Whether you’re navigating a personal challenge or a complex professional
+              Whether you're navigating a personal challenge or a complex professional
               situation, I meet you exactly where you are — and we build from there.
             </p>
           </ScrollReveal>
@@ -610,7 +610,7 @@ export default function HomePage() {
                 <div>
                   <label htmlFor="subject" style={labelStyle}>Subject</label>
                   <input
-                    id="subject" type="text" placeholder="What’s on your mind?"
+                    id="subject" type="text" placeholder="What's on your mind?"
                     {...register('subject')}
                     style={{ ...inputStyle, ...getFocusStyle('subject') }}
                     onFocus={() => setFocused('subject')} onBlur={() => setFocused(null)}
