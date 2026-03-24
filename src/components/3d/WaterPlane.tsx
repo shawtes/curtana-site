@@ -37,9 +37,9 @@ export default function WaterPlane({ visible, distortion = 1.2 }: Props) {
       textureWidth:    512,
       textureHeight:   512,
       waterNormals:    normals,
-      // Night — moonlight reflects off deep sage-tinted water
+      // Night — dim moonlight, no sun, cool reflection
       sunDirection:    new THREE.Vector3(-0.4, 0.08, -0.9).normalize(),
-      sunColor:        0x4a7a5c,
+      sunColor:        0x223344,  // dim cool moonlight — not sun, not sage
       waterColor:      0x0a1214,
       distortionScale: distortion,
       fog:             true,
