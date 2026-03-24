@@ -579,7 +579,7 @@ function HeroOverlay({ opacity }: { opacity: number }) {
         </Link>
       </motion.div>
 
-      {/* Bottom bar */}
+      {/* Bottom bar — breathing prompt */}
       <motion.div
         animate={{ opacity }}
         transition={{ duration: 0.4 }}
@@ -590,22 +590,29 @@ function HeroOverlay({ opacity }: { opacity: number }) {
           right:        0,
           height:       52,
           display:      'flex',
+          flexDirection: 'column',
           alignItems:   'center',
           justifyContent: 'center',
-          gap:          14,
+          gap:          8,
           borderTop:    '1px solid var(--border)',
           pointerEvents: 'none',
           zIndex:       10,
         }}
       >
-        <span style={{ color: 'var(--sage)', opacity: 0.5, fontSize: 12 }}>+</span>
         <span style={{
           fontFamily: 'var(--font-body, sans-serif)',
           fontSize: '10px', letterSpacing: '4px', textTransform: 'uppercase', color: 'var(--muted)',
         }}>
-          scroll to explore
+          breathe — the journey begins
         </span>
-        <span style={{ color: 'var(--sage)', opacity: 0.5, fontSize: 12 }}>+</span>
+        {/* Animated downward chevron */}
+        <motion.span
+          animate={{ y: [0, 4, 0] }}
+          transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+          style={{ color: 'var(--sage)', opacity: 0.5, fontSize: 14, lineHeight: 1 }}
+        >
+          &#x2304;
+        </motion.span>
       </motion.div>
     </>
   )
@@ -665,23 +672,24 @@ export default function SubmersionJourney() {
         const p = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
         setSceneProgress(p)
 
-        if (t >= 1 && !journeyDone.current) {
+        // Release scroll as the turn begins (p ~0.70) — page glides up
+        // while she's still rotating. Animation continues on the fixed canvas.
+        if (p >= 0.70 && !journeyDone.current) {
           journeyDone.current = true
-          // Release scroll and smoothly glide to content
           document.body.style.overflow = ''
           const wrap = document.getElementById('submersion-wrap')
           if (wrap) {
-            // Cinematic smooth scroll: Lenis drives the page from 0 to
-            // just past the hero over 1.8s — feels like the camera is
-            // pulling back to reveal the site
             setTimeout(() => window.dispatchEvent(
               new CustomEvent('smooth-scroll-to', {
-                detail: { y: wrap.offsetTop + wrap.offsetHeight, duration: 1.8 }
+                detail: { y: wrap.offsetTop + wrap.offsetHeight, duration: 2.0 }
               })
             ), 60)
           }
-          return
+          // Don't return — keep the RAF running so scene progress
+          // continues advancing to 1.0 on the fixed canvas
         }
+
+        if (t >= 1) return
       }
 
       rafRef.current = requestAnimationFrame(tick)

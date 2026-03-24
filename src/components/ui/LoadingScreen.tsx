@@ -57,92 +57,74 @@ export default function LoadingScreen({ onComplete }: { onComplete: () => void }
     return () => cancelAnimationFrame(raf)
   }, [finish])
 
-  // ── Cup geometry — realistic tea cup profile ────────────────────────────
-  // Modelled after a real ceramic tea cup: slight flare at rim, curved belly,
-  // narrow waist, small foot. All coordinates relative to rim-center (0,0).
-  const RIM_HW   = 44    // half-width at rim (lip)
-  const BELLY_HW = 48    // half-width at widest belly point
-  const FOOT_HW  = 20    // half-width at foot
-  const CUP_H    = 62    // interior depth (rim to inner base)
-  const BELLY_Y  = 28    // y where belly is widest
-  const BASE_Y   = CUP_H + 6  // outer base including foot curve
+  // ── Cup geometry — simple tapered teacup ────────────────────────────────
+  // Widest at rim, tapers to narrow base. Like a real teacup side profile.
+  const RIM_HW  = 42    // half-width at rim
+  const BASE_HW = 22    // half-width at base
+  const CUP_H   = 56    // cup height
+  const BASE_Y  = CUP_H + 5
 
-  // Cup body: rim → belly curve → foot, with rounded bottom
+  // Cup body — gentle inward taper, rounded bottom
   const cupPath = [
-    // Rim (slight lip flare — rim is narrower than belly)
     `M ${-RIM_HW} 0`,
-    // Left wall: flares out to belly, then tapers to foot
-    `C ${-RIM_HW - 2} ${BELLY_Y * 0.4}, ${-BELLY_HW} ${BELLY_Y * 0.7}, ${-BELLY_HW} ${BELLY_Y}`,
-    `C ${-BELLY_HW} ${BELLY_Y + 18}, ${-FOOT_HW - 12} ${CUP_H - 6}, ${-FOOT_HW} ${CUP_H}`,
-    // Rounded bottom
-    `Q ${-FOOT_HW} ${BASE_Y}, 0 ${BASE_Y}`,
-    `Q ${FOOT_HW} ${BASE_Y}, ${FOOT_HW} ${CUP_H}`,
-    // Right wall back up
-    `C ${FOOT_HW + 12} ${CUP_H - 6}, ${BELLY_HW} ${BELLY_Y + 18}, ${BELLY_HW} ${BELLY_Y}`,
-    `C ${BELLY_HW} ${BELLY_Y * 0.7}, ${RIM_HW + 2} ${BELLY_Y * 0.4}, ${RIM_HW} 0`,
+    `C ${-RIM_HW} ${CUP_H * 0.35}, ${-BASE_HW - 6} ${CUP_H * 0.7}, ${-BASE_HW} ${CUP_H}`,
+    `Q ${-BASE_HW} ${BASE_Y}, 0 ${BASE_Y}`,
+    `Q ${BASE_HW} ${BASE_Y}, ${BASE_HW} ${CUP_H}`,
+    `C ${BASE_HW + 6} ${CUP_H * 0.7}, ${RIM_HW} ${CUP_H * 0.35}, ${RIM_HW} 0`,
   ].join(' ')
 
-  // Rim ellipse (top opening — visible oval)
-  const rimPath = `M ${-RIM_HW} 0 Q ${-RIM_HW} -7, 0 -7 Q ${RIM_HW} -7, ${RIM_HW} 0 Q ${RIM_HW} 4, 0 4 Q ${-RIM_HW} 4, ${-RIM_HW} 0`
+  // Rim ellipse
+  const rimPath = `M ${-RIM_HW} 0 Q ${-RIM_HW} -6, 0 -6 Q ${RIM_HW} -6, ${RIM_HW} 0 Q ${RIM_HW} 3, 0 3 Q ${-RIM_HW} 3, ${-RIM_HW} 0`
 
-  // Small foot ring at base
-  const footPath = `M ${-FOOT_HW - 3} ${CUP_H + 2} Q ${-FOOT_HW - 3} ${BASE_Y + 2}, 0 ${BASE_Y + 2} Q ${FOOT_HW + 3} ${BASE_Y + 2}, ${FOOT_HW + 3} ${CUP_H + 2}`
+  // Foot ring
+  const footPath = `M ${-BASE_HW - 2} ${CUP_H + 1} Q ${-BASE_HW - 2} ${BASE_Y + 1}, 0 ${BASE_Y + 1} Q ${BASE_HW + 2} ${BASE_Y + 1}, ${BASE_HW + 2} ${CUP_H + 1}`
 
-  // Handle — ear-shaped, right side (for right cup)
+  // Handle — right side
   const handleR = [
-    `M ${RIM_HW - 4} 10`,
-    `C ${RIM_HW + 22} 6, ${RIM_HW + 30} 20, ${RIM_HW + 30} 32`,
-    `C ${RIM_HW + 30} 46, ${RIM_HW + 18} 54, ${BELLY_HW - 2} 50`,
+    `M ${RIM_HW - 3} 8`,
+    `C ${RIM_HW + 18} 4, ${RIM_HW + 24} 16, ${RIM_HW + 24} 26`,
+    `C ${RIM_HW + 24} 38, ${RIM_HW + 14} 44, ${RIM_HW - 6} 42`,
   ].join(' ')
 
-  // Handle — left side (for left/pouring cup)
+  // Handle — left side
   const handleL = [
-    `M ${-(RIM_HW - 4)} 10`,
-    `C ${-(RIM_HW + 22)} 6, ${-(RIM_HW + 30)} 20, ${-(RIM_HW + 30)} 32`,
-    `C ${-(RIM_HW + 30)} 46, ${-(RIM_HW + 18)} 54, ${-(BELLY_HW - 2)} 50`,
+    `M ${-(RIM_HW - 3)} 8`,
+    `C ${-(RIM_HW + 18)} 4, ${-(RIM_HW + 24)} 16, ${-(RIM_HW + 24)} 26`,
+    `C ${-(RIM_HW + 24)} 38, ${-(RIM_HW + 14)} 44, ${-(RIM_HW - 6)} 42`,
   ].join(' ')
 
-  // ── Water fill calculation ──────────────────────────────────────────────
-  // Compute the cup width at a given y using the belly curve profile
-  function cupHalfWidthAt(y: number): number {
+  // ── Water fill — linear taper from rim to base ─────────────────────────
+  function cupHW(y: number): number {
     if (y <= 0) return RIM_HW
-    if (y >= CUP_H) return FOOT_HW
-    if (y <= BELLY_Y) {
-      // Rim → belly: slight outward bulge
-      const t = y / BELLY_Y
-      return RIM_HW + (BELLY_HW - RIM_HW) * Math.sin(t * Math.PI * 0.5)
-    }
-    // Belly → foot: taper inward
-    const t = (y - BELLY_Y) / (CUP_H - BELLY_Y)
-    return BELLY_HW + (FOOT_HW - BELLY_HW) * t * t
+    if (y >= CUP_H) return BASE_HW
+    const t = y / CUP_H
+    // Slight curve to match the bezier walls
+    return RIM_HW + (BASE_HW - RIM_HW) * (t * 0.6 + t * t * 0.4)
   }
 
-  // Right cup: fills from bottom up (WL = water line y, 0 = full, CUP_H = empty)
+  // Right cup fills as progress increases
   const WL   = CUP_H * (1 - progress)
-  const wlHW = cupHalfWidthAt(WL)
+  const wlHW = cupHW(WL)
 
   const rightWaterPath = progress > 0.01 ? [
     `M ${-wlHW + 1} ${WL}`,
-    // Follow left wall down to base
-    `C ${-cupHalfWidthAt(WL + (CUP_H - WL) * 0.5) - 1} ${WL + (CUP_H - WL) * 0.5}, ${-FOOT_HW - 2} ${CUP_H - 4}, ${-FOOT_HW} ${CUP_H}`,
-    // Rounded bottom
-    `Q ${-FOOT_HW} ${BASE_Y - 1}, 0 ${BASE_Y - 1}`,
-    `Q ${FOOT_HW} ${BASE_Y - 1}, ${FOOT_HW} ${CUP_H}`,
-    // Follow right wall back up
-    `C ${FOOT_HW + 2} ${CUP_H - 4}, ${cupHalfWidthAt(WL + (CUP_H - WL) * 0.5) + 1} ${WL + (CUP_H - WL) * 0.5}, ${wlHW - 1} ${WL}`,
+    `L ${-BASE_HW + 1} ${CUP_H}`,
+    `Q ${-BASE_HW} ${BASE_Y - 1}, 0 ${BASE_Y - 1}`,
+    `Q ${BASE_HW} ${BASE_Y - 1}, ${BASE_HW - 1} ${CUP_H}`,
+    `L ${wlHW - 1} ${WL}`,
     'Z',
   ].join(' ') : ''
 
-  // Left cup: empties as progress increases (LWL goes from 0 → CUP_H)
+  // Left cup empties as progress increases
   const LWL   = CUP_H * progress
-  const lwlHW = cupHalfWidthAt(LWL)
+  const lwlHW = cupHW(LWL)
 
   const leftWaterPath = LWL < CUP_H - 1 ? [
     `M ${-lwlHW + 1} ${LWL}`,
-    `C ${-cupHalfWidthAt(LWL + (CUP_H - LWL) * 0.5) - 1} ${LWL + (CUP_H - LWL) * 0.5}, ${-FOOT_HW - 2} ${CUP_H - 4}, ${-FOOT_HW} ${CUP_H}`,
-    `Q ${-FOOT_HW} ${BASE_Y - 1}, 0 ${BASE_Y - 1}`,
-    `Q ${FOOT_HW} ${BASE_Y - 1}, ${FOOT_HW} ${CUP_H}`,
-    `C ${FOOT_HW + 2} ${CUP_H - 4}, ${cupHalfWidthAt(LWL + (CUP_H - LWL) * 0.5) + 1} ${LWL + (CUP_H - LWL) * 0.5}, ${lwlHW - 1} ${LWL}`,
+    `L ${-BASE_HW + 1} ${CUP_H}`,
+    `Q ${-BASE_HW} ${BASE_Y - 1}, 0 ${BASE_Y - 1}`,
+    `Q ${BASE_HW} ${BASE_Y - 1}, ${BASE_HW - 1} ${CUP_H}`,
+    `L ${lwlHW - 1} ${LWL}`,
     'Z',
   ].join(' ') : ''
 
@@ -181,8 +163,8 @@ export default function LoadingScreen({ onComplete }: { onComplete: () => void }
                   width="300"
                   style={{ display: 'block', margin: '0 auto', overflow: 'visible' }}
                 >
-                  {/* ── Left cup — gently tilted to pour, emptying ── */}
-                  <g transform="translate(60, 10) rotate(-18, 0, 34)">
+                  {/* ── Left cup — barely tilted to pour, emptying ── */}
+                  <g transform="translate(62, 16) rotate(-10, 0, 28)">
                     {/* Water fill */}
                     {leftWaterPath && (
                       <path d={leftWaterPath} fill="rgba(127,168,130,0.40)" />
@@ -236,18 +218,18 @@ export default function LoadingScreen({ onComplete }: { onComplete: () => void }
                     />
                   </g>
 
-                  {/* ── Water stream — gentle arc from spout to right cup ── */}
+                  {/* ── Water stream — short arc from spout lip to right cup ── */}
                   <path
-                    d="M 96 18 C 130 4 185 40 212 78"
+                    d="M 100 22 C 128 12 175 42 208 72"
                     fill="none"
                     stroke="rgba(127,168,130,0.55)"
                     strokeWidth="2"
                     strokeLinecap="round"
-                    strokeDasharray="150"
+                    strokeDasharray="140"
                   >
                     <animate
                       attributeName="stroke-dashoffset"
-                      from="150" to="0"
+                      from="140" to="0"
                       dur="1.2s"
                       repeatCount="indefinite"
                     />
@@ -258,18 +240,18 @@ export default function LoadingScreen({ onComplete }: { onComplete: () => void }
                       repeatCount="indefinite"
                     />
                   </path>
-                  {/* Secondary thin stream for depth */}
+                  {/* Secondary thin stream */}
                   <path
-                    d="M 98 20 C 128 8 182 44 210 80"
+                    d="M 102 24 C 126 16 172 46 206 74"
                     fill="none"
                     stroke="rgba(143,181,196,0.25)"
                     strokeWidth="1"
                     strokeLinecap="round"
-                    strokeDasharray="145"
+                    strokeDasharray="135"
                   >
                     <animate
                       attributeName="stroke-dashoffset"
-                      from="145" to="0"
+                      from="135" to="0"
                       dur="1.2s"
                       begin="0.15s"
                       repeatCount="indefinite"
@@ -277,13 +259,13 @@ export default function LoadingScreen({ onComplete }: { onComplete: () => void }
                   </path>
 
                   {/* Drop landing + ripple in right cup */}
-                  <circle cx="214" cy="84" r="2" fill="rgba(127,168,130,0.6)">
+                  <circle cx="210" cy="78" r="2" fill="rgba(127,168,130,0.6)">
                     <animate attributeName="opacity" values="0;1;0"      dur="1.2s" repeatCount="indefinite" />
-                    <animate attributeName="cy"      values="78;92;92"   dur="1.2s" repeatCount="indefinite" />
+                    <animate attributeName="cy"      values="72;86;86"   dur="1.2s" repeatCount="indefinite" />
                     <animate attributeName="r"       values="2;1.2;1.2" dur="1.2s" repeatCount="indefinite" />
                   </circle>
                   {/* Ripple ring */}
-                  <ellipse cx="214" cy="92" rx="0" ry="0" fill="none"
+                  <ellipse cx="210" cy="86" rx="0" ry="0" fill="none"
                     stroke="rgba(143,181,196,0.35)" strokeWidth="0.6">
                     <animate attributeName="rx"      values="0;8;12"   dur="1.2s" repeatCount="indefinite" />
                     <animate attributeName="ry"      values="0;2;3"    dur="1.2s" repeatCount="indefinite" />
