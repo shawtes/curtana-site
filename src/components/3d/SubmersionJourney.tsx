@@ -542,7 +542,7 @@ function HeroOverlay({ opacity }: { opacity: number }) {
           pointerEvents: opacity < 0.05 ? 'none' : 'auto',
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+        <div className="hero-top-chrome" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
           <span style={{
             display: 'inline-flex', alignItems: 'center', gap: 10,
             fontFamily: 'var(--font-body, sans-serif)',
@@ -581,12 +581,11 @@ function HeroOverlay({ opacity }: { opacity: number }) {
         transition={{ duration: 0.4 }}
         style={{
           position:     'absolute',
-          bottom:       96,
+          bottom:       'clamp(48px, 12vh, 96px)',
           left:         '50%',
           transform:    'translateX(-50%)',
           zIndex:       10,
           pointerEvents: opacity < 0.05 ? 'none' : 'auto',
-          whiteSpace:   'nowrap',
         }}
       >
         <Link

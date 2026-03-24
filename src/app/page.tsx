@@ -568,7 +568,7 @@ export default function HomePage() {
               <form onSubmit={handleSubmit(onSubmit)} noValidate style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
 
                 {/* First + Last */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <div className="name-fields" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                   <div>
                     <label htmlFor="firstName" style={labelStyle}>First Name</label>
                     <input
@@ -701,6 +701,9 @@ export default function HomePage() {
           #contact > div:first-child { grid-template-columns: 1fr !important; }
           .service-row { grid-template-columns: 1fr !important; direction: ltr !important; }
           #contact > div:last-child { grid-template-columns: 1fr !important; }
+          .name-fields { grid-template-columns: 1fr !important; }
+          .hero-top-chrome { flex-direction: column !important; align-items: flex-start !important; gap: 8px !important; }
+          .hero-cta { bottom: clamp(48px, 12vh, 96px) !important; }
         }
         input::placeholder, textarea::placeholder {
           color: var(--dim);

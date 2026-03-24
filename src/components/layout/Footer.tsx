@@ -25,7 +25,7 @@ export default function Footer() {
           margin: '0 auto',
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-          gap: 48,
+          gap: 'clamp(24px, 4vw, 48px)',
           paddingBottom: 48,
           borderBottom: '1px solid var(--border)',
         }}

@@ -12,8 +12,8 @@
 import { useRef, useEffect, useState } from 'react'
 
 // Frame-rate-independent damp: 1 - exp(-lambda * dt)
-// LAMBDA=1.4 → ~3.5s to settle. 15% faster than 1.2.
-const LAMBDA = 1.4
+// LAMBDA=1.6 → ~3s to settle. 15% faster than 1.4.
+const LAMBDA = 1.6
 
 function buildPath(vH: number): string {
   if (vH < 100) return ''

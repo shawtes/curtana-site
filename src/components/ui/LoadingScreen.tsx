@@ -158,7 +158,7 @@ export default function LoadingScreen({ onComplete }: { onComplete: () => void }
               >
                 <svg
                   viewBox="-20 -50 340 210"
-                  width="300"
+                  width="clamp(220px, 75vw, 300px)"
                   style={{ display: 'block', margin: '0 auto', overflow: 'visible' }}
                 >
                   {/* ── Left cup — tilted to pour, emptying ── */}
