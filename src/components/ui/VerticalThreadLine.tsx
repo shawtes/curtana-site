@@ -1,48 +1,33 @@
 'use client'
 
 /**
- * VerticalThreadLine — Lusion-style thick ribbon that sweeps full-width
- * across the page, going behind images and in front of text.
+ * VerticalThreadLine — Lusion-style self-drawing ribbon.
  *
- * Technique:
- *   - Full-width SVG (position: absolute, inset: 0) so the path uses the
- *     entire page width for its sweeping curves.
- *   - Thick stroke (14px) — a ribbon, not a hairline.
- *   - Lusion lerp: targetProgress updates from scroll, currentProgress lerps
- *     toward it at 0.175/frame (same constant Lusion uses, same in both directions).
- *   - z-index: 3 — in front of backgrounds/text, behind image cards
- *     (RevealImage wrapper gets z-index: 4 via CSS class).
+ * Key technique: frame-rate-independent exponential damping (not raw lerp).
+ * Target comes from Lenis virtual scroll (smooth-scroll custom event),
+ * current position damps toward it at LAMBDA=3 (~1.5s settle time).
+ * This matches the exact feel of Lenis's own smoothing.
  */
 
 import { useRef, useEffect, useState } from 'react'
 
-const LERP = 0.08
+// Frame-rate-independent damp: 1 - exp(-lambda * dt)
+// LAMBDA=3 → ~1.5s to settle. Same feel as Lenis with lerp ~0.04.
+const LAMBDA = 3
 
-// Build a full-width sweeping path.
-// vW = normalized view width (1000), vH = container height in px.
 function buildPath(vH: number): string {
   if (vH < 100) return ''
-
-  // The path sweeps across the full 1000-unit width.
-  // Each "section" is roughly vH/5 tall.
-  // Pattern: top-center → sweep left behind image → back to center →
-  //          sweep right behind next image → repeat.
-  const s = vH / 6   // segment height
+  const s = vH / 6
 
   return [
-    // Start from the left wall, slightly below top
     `M 0 ${s * 0.15}`,
-    // ── sweep right then back left (about section) ────────────────────────
     `C 200 ${s * 0.15}, 550 ${s * 0.5},  500 ${s * 1.0}`,
     `C 450 ${s * 1.4},  80 ${s * 1.7},   80 ${s * 1.3}`,
     `C  80 ${s * 1.7}, 420 ${s * 1.9},  500 ${s * 2.1}`,
-    // ── sweep right (services 1) ─────────────────────────────────────────────
     `C 580 ${s * 2.3}, 940 ${s * 2.7},  920 ${s * 3.1}`,
     `C 900 ${s * 3.5}, 480 ${s * 3.7},  460 ${s * 3.9}`,
-    // ── sweep left (services 2–3) ────────────────────────────────────────────
     `C 440 ${s * 4.1},  60 ${s * 4.4},   80 ${s * 4.7}`,
     `C 100 ${s * 5.0}, 520 ${s * 5.2},  500 ${s * 5.5}`,
-    // ── arrive at bottom center ──────────────────────────────────────────────
     `C 490 ${s * 5.7}, 460 ${s * 5.9},  480 ${vH}`,
   ].join(' ')
 }
@@ -58,16 +43,17 @@ export default function VerticalThreadLine({
   opacity     = 0.7,
   strokeWidth = 21,
 }: Props) {
-  const wrapRef   = useRef<HTMLDivElement>(null)
-  const pathRef   = useRef<SVGPathElement>(null)
-  const lenRef    = useRef(0)
-  const rafIdRef  = useRef<number | null>(null)
-  const targetRef = useRef(0)
-  const currentRef= useRef(0)
+  const wrapRef    = useRef<HTMLDivElement>(null)
+  const pathRef    = useRef<SVGPathElement>(null)
+  const lenRef     = useRef(0)
+  const rafIdRef   = useRef<number | null>(null)
+  const targetRef  = useRef(0)
+  const currentRef = useRef(0)
+  const lastTsRef  = useRef(-1)
 
   const [size, setSize] = useState({ w: 0, h: 0 })
 
-  // ── 1. Measure parent ────────────────────────────────────────────────────
+  // ── 1. Measure parent ──────────────────────────────────────────────────
   useEffect(() => {
     const parent = wrapRef.current?.parentElement
     if (!parent) return
@@ -78,7 +64,7 @@ export default function VerticalThreadLine({
     return () => ro.disconnect()
   }, [])
 
-  // ── 2. Measure path length once SVG is painted ───────────────────────────
+  // ── 2. Measure path length ─────────────────────────────────────────────
   useEffect(() => {
     if (!size.h) return
     let id = requestAnimationFrame(() => {
@@ -95,17 +81,27 @@ export default function VerticalThreadLine({
     return () => cancelAnimationFrame(id)
   }, [size])
 
-  // ── 3. Continuous lerp loop ──────────────────────────────────────────────
+  // ── 3. Frame-rate-independent damp loop ────────────────────────────────
   useEffect(() => {
-    const loop = () => {
+    const loop = (ts: number) => {
       rafIdRef.current = requestAnimationFrame(loop)
+
+      // dt in seconds, capped at 100ms to avoid jumps after tab switch
+      const dt = lastTsRef.current < 0
+        ? 1 / 60
+        : Math.min((ts - lastTsRef.current) / 1000, 0.1)
+      lastTsRef.current = ts
+
+      // Exponential damp: same formula Lenis uses internally
+      const factor = 1 - Math.exp(-LAMBDA * dt)
       const diff = targetRef.current - currentRef.current
-      if (Math.abs(diff) < 0.0001) {
+
+      if (Math.abs(diff) < 0.00005) {
         currentRef.current = targetRef.current
       } else {
-        currentRef.current += diff * LERP
+        currentRef.current += diff * factor
       }
-      // Always write to DOM — never skip, even on snap
+
       const path = pathRef.current
       const len  = lenRef.current
       if (path && len) {
@@ -116,37 +112,35 @@ export default function VerticalThreadLine({
     return () => { if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current) }
   }, [])
 
-  // ── 4. Scroll → targetProgress ──────────────────────────────────────────
-  // Maps against the full remaining page scroll after this section enters —
-  // not just the container's own height. Line is at 50% when the user is
-  // halfway through the rest of the page.
+  // ── 4. Scroll → target (reads Lenis virtual position) ─────────────────
   useEffect(() => {
     const update = (e?: Event) => {
       const parent = wrapRef.current?.parentElement
       if (!parent) return
 
+      // Prefer Lenis's smooth-scroll event (interpolated), fall back to native
       const scrollY = (e as CustomEvent)?.detail?.y ?? window.scrollY
       const rect    = parent.getBoundingClientRect()
       const vh      = window.innerHeight
       const totalScrollable = Math.max(1, document.documentElement.scrollHeight - vh)
 
-      // Absolute top of this section in the document
       const sectionTop  = rect.top + scrollY
-      // Start drawing when section enters the bottom of the viewport
       const startScroll = Math.max(0, sectionTop - vh)
       const range       = totalScrollable - startScroll
       if (range <= 0) return
 
       const raw = (scrollY - startScroll) / range
-      // Lead the scroll by 20% so the line is always drawn ahead of content
-      targetRef.current = Math.min(1, Math.max(0, raw * 1.2 + 0.05))
+      // Lead scroll by 15% so line is always slightly ahead
+      targetRef.current = Math.min(1, Math.max(0, raw * 1.15 + 0.03))
     }
-    window.addEventListener('scroll',        update, { passive: true })
+
+    // smooth-scroll fires every rAF from Lenis — this is the smooth source
     window.addEventListener('smooth-scroll', update as EventListener, { passive: true })
+    window.addEventListener('scroll', update, { passive: true })
     update()
     return () => {
-      window.removeEventListener('scroll',        update)
       window.removeEventListener('smooth-scroll', update as EventListener)
+      window.removeEventListener('scroll', update)
     }
   }, [])
 
