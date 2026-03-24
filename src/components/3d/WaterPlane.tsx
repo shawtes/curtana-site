@@ -37,9 +37,9 @@ export default function WaterPlane({ visible, distortion = 1.2 }: Props) {
       textureHeight:   512,
       waterNormals:    normals,
       // Night — sun below horizon, dark sage tones, no blue
-      sunDirection:    new THREE.Vector3(-0.3, 0.05, -0.8).normalize(),
-      sunColor:        0x1a3020,  // dark sage — tints reflections green not blue
-      waterColor:      0x0a1210,  // very dark forest water
+      sunDirection:    new THREE.Vector3(0, -1, 0).normalize(),
+      sunColor:        0x000000,  // no sun — eliminates blue at all angles
+      waterColor:      0x0d1a14,  // subtle sage tint lives here instead
       distortionScale: distortion,
       fog:             true,
       alpha:           1.0,
