@@ -95,7 +95,9 @@ export default function VerticalThreadLine({
       const range    = Math.max(1, rect.height)
 
       const raw  = Math.min(1, Math.max(0, scrolled / range))
-      const eased = easeOutQuad(raw)
+      // 1.5x multiplier — line draws 50% faster than scroll
+      const boosted = Math.min(1, raw * 1.5)
+      const eased = easeOutQuad(boosted)
 
       // Write directly — no damp, no RAF loop. Lenis fires this 60fps.
       path.style.strokeDashoffset = `${len * (1 - eased)}`
