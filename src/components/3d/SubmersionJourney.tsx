@@ -325,13 +325,14 @@ function CameraRig({ figureY, progress }: { figureY: number; progress: number })
     // At surface: higher up so we see her on the water.
     // During descent: follows her down, looking slightly below her.
     const aboveSurface = progress < 0.20
-    const camOffsetY   = aboveSurface ? 1.8 : 1.2
-    const camZ         = aboveSurface ? 5.5 : 5.0
+    const camOffsetY   = aboveSurface ? 1.0 : 1.2
+    const camZ         = aboveSurface ? 4.5 : 5.0
 
     const targetX     = 0
     const targetY     = figureY + camOffsetY
     const targetZ     = camZ
-    const targetLookY = figureY + (aboveSurface ? 0.0 : 0.3)
+    // Look slightly above figure at surface (avoids water horizon)
+    const targetLookY = figureY + (aboveSurface ? 0.3 : 0.3)
 
     // Faster lerp during descent so camera keeps up
     const LERP = progress > 0.15 && progress < 0.55 ? 0.06 : 0.035
@@ -500,7 +501,8 @@ function Scene({ progress }: { progress: number }) {
       />
 
       {/* ── Surface shimmer seen from below — during and after descent ── */}
-      <SurfaceFromBelow visible={act >= 1 && progress < 0.75} />
+      {/* Only show once camera is clearly below the water surface */}
+      <SurfaceFromBelow visible={progress > 0.35 && progress < 0.75} />
 
     </>
   )
