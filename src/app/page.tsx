@@ -24,7 +24,7 @@ const sectionVariants = {
     boxShadow: '0 0 0px rgba(127,168,130,0), inset 0 1px 0 rgba(127,168,130,0.06)',
   },
 }
-const sectionTransition = { duration: 1.3, ease: [0.16, 1, 0.3, 1] as [number,number,number,number] }
+const sectionTransition = { duration: 1.8, ease: [0.16, 1, 0.3, 1] as [number,number,number,number] }
 
 const SubmersionJourney = dynamic(() => import('@/components/3d/SubmersionJourney'), {
   ssr:     false,
@@ -216,7 +216,7 @@ export default function HomePage() {
         style={{ position: 'relative', zIndex: 4 }}
       >
       <section id="about" style={{
-        padding: 'clamp(80px, 12vw, 140px) clamp(24px, 5vw, 72px)',
+        padding: 'clamp(120px, 16vw, 220px) clamp(24px, 5vw, 72px)',
         maxWidth: 1200, margin: '0 auto',
         display: 'grid', gridTemplateColumns: '1fr 1fr',
         gap: 'clamp(48px, 8vw, 120px)', alignItems: 'center',
@@ -241,17 +241,17 @@ export default function HomePage() {
               fontSize: 'clamp(38px, 5vw, 70px)',
               fontWeight: 400, fontStyle: 'italic',
               color: 'var(--cream)', lineHeight: 1.05,
-              letterSpacing: '-2px', marginBottom: 32,
+              letterSpacing: '-2px', marginBottom: 44,
             }}
           >
             Private. Precise. Transformative.
           </SplitHeading>
 
-          <ScrollReveal duration={1000} delay={180}>
+          <ScrollReveal duration={1200} delay={200}>
             <p style={{
               fontFamily: 'var(--font-body), sans-serif',
               fontSize: 'clamp(14px, 1.5vw, 16px)', fontWeight: 300,
-              color: 'var(--text)', lineHeight: 1.9, marginBottom: 22,
+              color: ‘var(--text)’, lineHeight: 1.9, marginBottom: 28,
             }}>
               I’m Curtana. I work with individuals and organisations on the problems
               they can’t talk about openly — psychological wellbeing, social
@@ -263,7 +263,7 @@ export default function HomePage() {
             <p style={{
               fontFamily: 'var(--font-body), sans-serif',
               fontSize: 'clamp(14px, 1.5vw, 16px)', fontWeight: 300,
-              color: 'var(--text)', lineHeight: 1.9, marginBottom: 36,
+              color: 'var(--text)', lineHeight: 1.9, marginBottom: 44,
             }}>
               Every engagement is tailored. There is no template, no generic programme.
               Whether you’re navigating a personal challenge or a complex professional
@@ -307,7 +307,7 @@ export default function HomePage() {
         style={{ position: 'relative', zIndex: 4 }}
       >
       <section id="services" style={{
-        padding: 'clamp(60px, 10vw, 120px) clamp(24px, 5vw, 72px)',
+        padding: 'clamp(120px, 16vw, 220px) clamp(24px, 5vw, 72px)',
         maxWidth: 1200, margin: '0 auto',
       }}>
         <ScrollReveal duration={1000}>
@@ -327,13 +327,13 @@ export default function HomePage() {
           fontSize: 'clamp(38px, 5.5vw, 76px)',
           fontWeight: 400, fontStyle: 'italic',
           color: 'var(--cream)', lineHeight: 1.05,
-          letterSpacing: '-2px', marginBottom: 'clamp(60px, 8vw, 100px)',
+          letterSpacing: '-2px', marginBottom: 'clamp(80px, 10vw, 140px)',
           position: 'relative', zIndex: 5,
         }}>
           Private solutions to personal & professional problems.
         </SplitHeading>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(60px, 10vw, 120px)' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 'clamp(100px, 14vw, 180px)' }}>
           {SERVICES.map((service, i) => (
             <div key={service.title}>
             <ScrollReveal duration={1100} delay={0}>
@@ -419,7 +419,7 @@ export default function HomePage() {
         style={{ position: 'relative', zIndex: 4 }}
       >
       <section id="contact" style={{
-        padding: 'clamp(80px, 12vw, 140px) clamp(24px, 5vw, 72px)',
+        padding: 'clamp(120px, 16vw, 220px) clamp(24px, 5vw, 72px)',
         maxWidth: 1200, margin: '0 auto',
       }}>
 

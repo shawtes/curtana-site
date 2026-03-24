@@ -16,7 +16,7 @@
 
 import { useRef, useEffect, useState } from 'react'
 
-const LERP = 0.056
+const LERP = 0.035
 
 // Build a full-width sweeping path.
 // vW = normalized view width (1000), vH = container height in px.
