@@ -672,6 +672,9 @@ export default function SubmersionJourney() {
         const p = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
         setSceneProgress(p)
 
+        // Broadcast progress for ambient audio
+        window.dispatchEvent(new CustomEvent('journey-progress', { detail: { p } }))
+
         // Release scroll as the turn begins (p ~0.70) — page glides up
         // while she's still rotating. Animation continues on the fixed canvas.
         if (p >= 0.70 && !journeyDone.current) {

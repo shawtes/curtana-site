@@ -9,6 +9,7 @@ import RevealImage from '@/components/ui/RevealImage'
 import VerticalThreadLine from '@/components/ui/VerticalThreadLine'
 import SplitHeading from '@/components/ui/SplitHeading'
 import LoadingScreen from '@/components/ui/LoadingScreen'
+import AmbientAudioProvider from '@/components/ui/AmbientAudioProvider'
 
 // Materialize-in animation for sections that appear in front of the character
 const sectionVariants = {
@@ -190,6 +191,7 @@ export default function HomePage() {
   return (
     <>
     {!loaderDone && <LoadingScreen onComplete={() => setLoaderDone(true)} />}
+    <AmbientAudioProvider />
     <main style={{ position: 'relative', zIndex: 1 }}>
 
       {/* ══ 3D HERO ══ */}
