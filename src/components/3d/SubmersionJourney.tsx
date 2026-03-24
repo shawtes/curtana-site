@@ -34,7 +34,7 @@ import { Caustics }                from '@react-three/drei'
 const SAGE  = new THREE.Color('#7fa882')
 const GOLD  = new THREE.Color('#c9a96e')
 const WHITE = new THREE.Color('#ffffff')
-const DARK  = new THREE.Color('#0d1210')
+const DARK  = new THREE.Color('#0d0f0e')
 
 // ─── BREATH EASE ──────────────────────────────────────────────────────────────
 const BREATH_EASE: [number, number, number, number] = [0.16, 1, 0.3, 1]
@@ -742,11 +742,12 @@ export default function SubmersionJourney() {
           style={{ width: '100%', height: '100%', display: 'block' }}
           dpr={[1, 1.5]}
           camera={{ position: [0, 1.8, 6], fov: 55, near: 0.1, far: 2000 }}
+          scene={{ background: new THREE.Color('#0d0f0e') }}
           gl={{
             antialias:           false,
             powerPreference:     'high-performance',
             toneMapping:         THREE.ACESFilmicToneMapping,
-            toneMappingExposure: 2.2,
+            toneMappingExposure: 1.8,
             outputColorSpace:    THREE.SRGBColorSpace,
           }}
         >
