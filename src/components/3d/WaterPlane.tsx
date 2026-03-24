@@ -1,11 +1,10 @@
 'use client'
 
 /**
- * WaterPlane — Three.js Water shader for the surface scene.
+ * WaterPlane — Three.js Water shader for Act 00 and Act 01.
  *
  * Sage-dark tinted reflective water with breath-driven ripple animation.
- * Sun is set below the horizon with dark colors so reflections are
- * dark — no blue sky leak.
+ * Ripples expand faster on inhale, slower on exhale.
  *
  * Position: y = -1.8 (just below figure base at y = -0.8)
  */
@@ -17,7 +16,9 @@ import * as THREE from 'three'
 import { Water } from 'three/examples/jsm/objects/Water.js'
 
 interface Props {
+  /** visible: render the water plane, hidden: remove it */
   visible: boolean
+  /** how distorted/choppy the water is (1.2 = calm, 5 = stormy) */
   distortion?: number
 }
 
@@ -36,10 +37,10 @@ export default function WaterPlane({ visible, distortion = 1.2 }: Props) {
       textureWidth:    512,
       textureHeight:   512,
       waterNormals:    normals,
-      // Night — sun below horizon, dark sage tones, no blue
-      sunDirection:    new THREE.Vector3(0, -1, 0).normalize(),
-      sunColor:        0x000000,  // no sun — eliminates blue at all angles
-      waterColor:      0x0d1a14,  // subtle sage tint lives here instead
+      // Night — moonlight reflects off deep sage-tinted water
+      sunDirection:    new THREE.Vector3(-0.4, 0.08, -0.9).normalize(),
+      sunColor:        0x4a7a5c,
+      waterColor:      0x0a1214,
       distortionScale: distortion,
       fog:             true,
       alpha:           1.0,
@@ -48,7 +49,9 @@ export default function WaterPlane({ visible, distortion = 1.2 }: Props) {
     waterRef.current  = water
 
     // Hide stars during the water's reflection render pass so they don't
-    // appear mirrored on the water surface.
+    // appear mirrored on the water surface. The Water shader calls
+    // onBeforeRender which internally renders the scene to a reflection
+    // texture — we wrap that to toggle visibility of tagged objects.
     const originalOnBeforeRender = water.onBeforeRender.bind(water)
     water.onBeforeRender = (renderer, scene, camera, geometry, material, group) => {
       const hidden: THREE.Object3D[] = []
@@ -68,6 +71,8 @@ export default function WaterPlane({ visible, distortion = 1.2 }: Props) {
       if (groupRef.current) groupRef.current.remove(water)
       geom.dispose()
       water.material.dispose()
+      // Dispose the internal reflection WebGLRenderTarget — without this
+      // a ~16MB framebuffer is leaked every time the component remounts.
       ;(water as unknown as { renderTarget?: THREE.WebGLRenderTarget }).renderTarget?.dispose()
       waterRef.current = null
     }
@@ -79,11 +84,11 @@ export default function WaterPlane({ visible, distortion = 1.2 }: Props) {
     const t = clock.elapsedTime
     const u = waterRef.current.material.uniforms
 
-    // Breath-driven ripple speed
+    // Breath-driven ripple speed — faster on inhale, slower on exhale
     const breathFactor = 1 + Math.sin(t * 0.45) * 0.3
     if (u.time)             u.time.value            += breathFactor * 0.008
     if (u.distortionScale)  u.distortionScale.value  = distortion
-    if (u.size)             u.size.value             = 0.8
+    if (u.size)             u.size.value             = 0.8  // smaller normal map tiles
   })
 
   if (!visible) return null
