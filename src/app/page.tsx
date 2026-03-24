@@ -198,7 +198,7 @@ export default function HomePage() {
       <SubmersionJourney />
 
       {/* ══ CONTENT — relative wrapper so VerticalThreadLine can span all sections ══ */}
-      <div style={{ position: 'relative', zIndex: 1 }}>
+      <div style={{ position: 'relative', zIndex: 1, overflow: 'hidden' }}>
         {/* Background layer — behind the thread line */}
         <div style={{ position: 'absolute', inset: 0, background: 'rgba(13,15,14,0.72)', zIndex: 1 }} />
         {/* Thread line — z-index 2: above background, behind section content (z-index 4) */}
