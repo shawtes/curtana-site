@@ -121,14 +121,11 @@ export default function VerticalThreadLine({
       if (!parent) return
 
       const rect = parent.getBoundingClientRect()
-      const vh   = window.innerHeight
 
-      // How far the container has scrolled through the viewport:
-      // 0 = container top just entered viewport bottom
-      // 1 = container bottom just left viewport top
-      const containerH = rect.height
-      const scrolled   = vh - rect.top          // how far past the top of viewport
-      const range      = containerH + vh        // total travel distance
+      // 0 = container top is at viewport top
+      // 1 = container bottom is at viewport top
+      const scrolled = -rect.top
+      const range    = Math.max(1, rect.height)
       if (range <= 0) return
 
       const raw = scrolled / range
