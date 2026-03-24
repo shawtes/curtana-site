@@ -12,8 +12,8 @@
 import { useRef, useEffect, useState } from 'react'
 
 // Frame-rate-independent damp: 1 - exp(-lambda * dt)
-// LAMBDA=0.5 → ~9s to settle. Very slow, meditative draw.
-const LAMBDA = 0.5
+// LAMBDA=1.2 → ~4s to settle. Tracks scroll pace, never rushes ahead.
+const LAMBDA = 1.2
 
 function buildPath(vH: number): string {
   if (vH < 100) return ''
@@ -114,24 +114,24 @@ export default function VerticalThreadLine({
     return () => { if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current) }
   }, [])
 
-  // ── 4. Scroll → target (reads Lenis virtual position) ─────────────────
+  // ── 4. Scroll → target (mapped to container height, not full page) ────
   useEffect(() => {
-    const update = (e?: Event) => {
+    const update = () => {
       const parent = wrapRef.current?.parentElement
       if (!parent) return
 
-      // Prefer Lenis's smooth-scroll event (interpolated), fall back to native
-      const scrollY = (e as CustomEvent)?.detail?.y ?? window.scrollY
-      const rect    = parent.getBoundingClientRect()
-      const vh      = window.innerHeight
-      const totalScrollable = Math.max(1, document.documentElement.scrollHeight - vh)
+      const rect = parent.getBoundingClientRect()
+      const vh   = window.innerHeight
 
-      const sectionTop  = rect.top + scrollY
-      const startScroll = Math.max(0, sectionTop - vh)
-      const range       = totalScrollable - startScroll
+      // How far the container has scrolled through the viewport:
+      // 0 = container top just entered viewport bottom
+      // 1 = container bottom just left viewport top
+      const containerH = rect.height
+      const scrolled   = vh - rect.top          // how far past the top of viewport
+      const range      = containerH + vh        // total travel distance
       if (range <= 0) return
 
-      const raw = (scrollY - startScroll) / range
+      const raw = scrolled / range
       targetRef.current = Math.min(1, Math.max(0, raw))
     }
 
