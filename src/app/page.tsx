@@ -199,6 +199,9 @@ export default function HomePage() {
 
       {/* ══ CONTENT — relative wrapper so VerticalThreadLine can span all sections ══ */}
       <div style={{ position: 'relative', zIndex: 1 }}>
+        {/* Background layer — behind the thread line */}
+        <div style={{ position: 'absolute', inset: 0, background: 'rgba(13,15,14,0.72)', zIndex: 1 }} />
+        {/* Thread line — z-index 2: above background, behind section content (z-index 4) */}
         <VerticalThreadLine />
 
       {/* ══════════════════════════════════════════════════════════
@@ -210,7 +213,7 @@ export default function HomePage() {
         whileInView="visible"
         viewport={{ once: true, margin: '-60px' }}
         transition={sectionTransition}
-        style={{ background: 'rgba(13,15,14,0.72)', position: 'relative', zIndex: 4 }}
+        style={{ position: 'relative', zIndex: 4 }}
       >
       <section id="about" style={{
         padding: 'clamp(80px, 12vw, 140px) clamp(24px, 5vw, 72px)',
@@ -301,7 +304,7 @@ export default function HomePage() {
         whileInView="visible"
         viewport={{ once: true, margin: '-60px' }}
         transition={{ ...sectionTransition, delay: 0.05 }}
-        style={{ background: 'rgba(13,15,14,0.72)', position: 'relative', zIndex: 4 }}
+        style={{ position: 'relative', zIndex: 4 }}
       >
       <section id="services" style={{
         padding: 'clamp(60px, 10vw, 120px) clamp(24px, 5vw, 72px)',
@@ -413,7 +416,7 @@ export default function HomePage() {
         whileInView="visible"
         viewport={{ once: true, margin: '-60px' }}
         transition={{ ...sectionTransition, delay: 0.05 }}
-        style={{ background: 'rgba(13,15,14,0.80)', position: 'relative', zIndex: 4 }}
+        style={{ position: 'relative', zIndex: 4 }}
       >
       <section id="contact" style={{
         padding: 'clamp(80px, 12vw, 140px) clamp(24px, 5vw, 72px)',

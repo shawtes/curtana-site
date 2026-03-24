@@ -157,7 +157,7 @@ export default function VerticalThreadLine({
         position:      'absolute',
         inset:         0,
         pointerEvents: 'none',
-        zIndex:        3,
+        zIndex:        2,
       }}
     >
       <svg
