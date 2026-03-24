@@ -28,7 +28,7 @@ import { useDeviceTier }           from '@/hooks/useDeviceTier'
 import { RyJeaneCharacter, UnderwaterLighting } from './RyJeaneCharacter'
 import WaterPlane                  from './WaterPlane'
 import BiolumiParticles            from './BiolumiParticles'
-import { Caustics }                from '@react-three/drei'
+import { Caustics, Stars }         from '@react-three/drei'
 
 // ─── SHARED COLORS ────────────────────────────────────────────────────────────
 const SAGE  = new THREE.Color('#7fa882')
@@ -446,8 +446,21 @@ function Scene({ progress }: { progress: number }) {
       <pointLight position={[2, 0, 2]}  intensity={0.45} color="#8fb5c4" />
       <pointLight position={[-2, 1, 3]} intensity={0.35} color="#7fa882" distance={12} />
 
-      {/* Stars — Act 0 surface only */}
-      {act === 0 && <StarField opacity={1.0} mobile={mobile} />}
+      {/* ── Night sky — drei Stars as dense deep-field backdrop ── */}
+      {act === 0 && (
+        <>
+          <Stars
+            radius={120}
+            depth={60}
+            count={6000}
+            factor={4}
+            saturation={0.1}
+            fade
+            speed={0.3}
+          />
+          <StarField opacity={1.0} mobile={mobile} />
+        </>
+      )}
 
       {/* Underwater lighting once submerged */}
       {act >= 1 && <UnderwaterLighting depth={submersionDepth} />}
