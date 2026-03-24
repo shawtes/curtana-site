@@ -641,14 +641,11 @@ export default function SubmersionJourney() {
       setSceneProgress(1)
       journeyDone.current = true
       document.body.style.overflow = prevOverflow
-      // Scroll past hero
+      // Scroll past hero instantly for reduced-motion users
       setTimeout(() => {
         const wrap = document.getElementById('submersion-wrap')
         if (wrap) {
-          window.scrollTo(0, 0)
-          window.dispatchEvent(
-            new CustomEvent('smooth-scroll-to', { detail: { y: wrap.offsetTop + wrap.offsetHeight } })
-          )
+          window.scrollTo(0, wrap.offsetTop + wrap.offsetHeight)
         }
       }, 100)
       return
@@ -670,13 +667,18 @@ export default function SubmersionJourney() {
 
         if (t >= 1 && !journeyDone.current) {
           journeyDone.current = true
+          // Release scroll and smoothly glide to content
           document.body.style.overflow = ''
-          window.scrollTo(0, 0)
           const wrap = document.getElementById('submersion-wrap')
           if (wrap) {
+            // Cinematic smooth scroll: Lenis drives the page from 0 to
+            // just past the hero over 1.8s — feels like the camera is
+            // pulling back to reveal the site
             setTimeout(() => window.dispatchEvent(
-              new CustomEvent('smooth-scroll-to', { detail: { y: wrap.offsetTop + wrap.offsetHeight } })
-            ), 80)
+              new CustomEvent('smooth-scroll-to', {
+                detail: { y: wrap.offsetTop + wrap.offsetHeight, duration: 1.8 }
+              })
+            ), 60)
           }
           return
         }

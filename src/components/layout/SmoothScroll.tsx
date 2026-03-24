@@ -85,10 +85,10 @@ export default function SmoothScroll({ children }: { children: ReactNode }) {
     lenisRef.current = lenis
 
     // ── smooth-scroll-to event — lets internal code drive Lenis directly ───
-    // Usage: dispatchEvent(new CustomEvent('smooth-scroll-to', { detail: { y } }))
+    // Usage: dispatchEvent(new CustomEvent('smooth-scroll-to', { detail: { y, duration? } }))
     const onScrollTo = (e: Event) => {
-      const { y } = (e as CustomEvent<{ y: number }>).detail
-      lenis.scrollTo(y, { immediate: false })
+      const { y, duration } = (e as CustomEvent<{ y: number; duration?: number }>).detail
+      lenis.scrollTo(y, { immediate: false, ...(duration ? { duration } : {}) })
     }
     window.addEventListener('smooth-scroll-to', onScrollTo)
 
